@@ -37,7 +37,7 @@ You must have [R](https://cran.r-project.org/) and [RStudio](https://posit.co/do
 1.  **Download:** Clone this repository or download the ZIP file.
 2.  **Open:** Double-click `phytoclassShiny.Rproj` to open the project in RStudio.
 3.  **Install Dependencies:**
-    The application should run this step automatically upon first launch. If the applications fails to load all dependencies, please run the following code in the RStudio Console     to install required packages:
+    The application should run this step automatically upon first launch. If the applications fails to load all dependencies, please run the following code in the RStudio Console to install required packages:
     ```r
     install.packages(c("shiny", "shinythemes", "shinyjs", "shinyWidgets", "shinybusy", 
                        "DT", "yaml", "dplyr", "tidyr", "readxl", "openxlsx", "lubridate", 
