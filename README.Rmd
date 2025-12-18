@@ -2,7 +2,7 @@
 
 **An Interactive R Shiny Interface for Phytoplankton Pigment Analysis.**
 
-[![DOI](https://zenodo.org/badge/DOI/pending.svg)](https://zenodo.org/badge/latestdoi/pending)
+[![DOI](https://zenodo.org/badge/1118909294.svg)](https://doi.org/10.5281/zenodo.17977696)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 ## Overview
@@ -10,7 +10,7 @@
 
 The application wraps the core Simulated Annealing algorithm in a guided, reproducible workflow that enforces data handling, quality control, and reporting.
 
-### ⚠️ Methodological Distinction
+### Methodological Distinction
 Unlike **CHEMTAX**, which utilizes steepest-descent algorithms that can be sensitive to initial starting conditions, **phytoclass** uses **Simulated Annealing** to search the global solution space. Consequently, this method does *not* require the strict curation of region-specific initial pigment ratio tables ($F_0$) often needed to prevent bias in traditional approaches.
 
 ## Validation & Accuracy
@@ -62,7 +62,7 @@ You must have [R](https://cran.r-project.org/) and [RStudio](https://posit.co/do
 
 ## Citation
 If you use this tool, please cite:
-> **Quinlan, L.B. (2025).** phytoclassShiny: An R-Based Application for Phytoplankton Community Analysis (Version 1.0). Zenodo. [DOI Pending]
+> **Quinlan, L.B. (2025).** phytoclassShiny: An R-Based Application for Phytoplankton Community Analysis (Version 1.0). Zenodo. https://doi.org/10.5281/zenodo.17977697
 
 ### Key References
 *   **Hayward, A., et al.** (2023). *phytoclass*: A pigment-based chemotaxonomic method to determine the biomass of phytoplankton classes. *Limnology and Oceanography: Methods*, 21, 220–241.
