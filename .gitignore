@@ -1,0 +1,9 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+thumbs.db
+config_session.yaml
+outputs/
+*.xlsx
+!R/Fm_matrices/*.xlsx

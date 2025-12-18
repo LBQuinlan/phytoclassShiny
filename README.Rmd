@@ -1,0 +1,74 @@
+# phytoclassShiny
+
+**An Interactive R Shiny Interface for Phytoplankton Pigment Analysis.**
+
+[![DOI](https://zenodo.org/badge/DOI/pending.svg)](https://zenodo.org/badge/latestdoi/pending)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
+## Overview
+**phytoclassShiny** is an open-source application designed to allow for easy-to-use chemotaxonomic analysis. It serves as a graphical user interface (GUI) for the `phytoclass` R package, enabling reconstruction of phytoplankton community structure from HPLC pigment data without requiring programming skills.
+
+The application wraps the core Simulated Annealing algorithm in a guided, reproducible workflow that enforces data handling, quality control, and reporting.
+
+### ⚠️ Methodological Distinction
+Unlike **CHEMTAX**, which utilizes steepest-descent algorithms that can be sensitive to initial starting conditions, **phytoclass** uses **Simulated Annealing** to search the global solution space. Consequently, this method does *not* require the strict curation of region-specific initial pigment ratio tables ($F_0$) often needed to prevent bias in traditional approaches.
+
+## Validation & Accuracy
+This application has been validated against the original `phytoclass` R package using benchmark datasets from the Southern Ocean (Viljoen et al., 2025). 
+
+Regression analysis confirms that **phytoclassShiny** faithfully replicates the core package's outputs, achieving exceptionally high agreement for major phytoplankton groups:
+*   **Prochlorococcus:** $R^2 = 1.00$
+*   **Haptophytes, Prasinophytes, Cryptophytes, Dinoflagellates:** $R^2 \ge 0.99$
+*   **Diatoms:** $R^2 = 0.90$
+
+## Features
+*   **Intelligent Mapping:** Auto-detects defined pigment columns and warns users if specific functional groups cannot be resolved based on available pigments.
+*   **Robust Quality Control:** Filters samples based on geospatial, temporal, and depth constraints while flagging potential duplicates and zero-sum errors.
+*   **Cluster Optimization:** Implements the recommended pre-clustering methodology (Hayward et al., 2023) to group samples by pigment-to-TChla ratios before analysis (using Ward's Hierarchical Clustering on normalized data).
+*   **Reproducibility:** Saves session configurations (`.yaml`) and generates a "Master Audit Report" detailing every setting, sample exclusion, and result.
+*   **Visualization:** Produces stacked area and bar charts.
+
+## Installation & Usage
+
+### Prerequisites
+You must have [R](https://cran.r-project.org/) and [RStudio](https://posit.co/download/rstudio-desktop/) installed.
+
+### Setup
+1.  **Download:** Clone this repository or download the ZIP file.
+2.  **Open:** Double-click `phytoclassShiny.Rproj` to open the project in RStudio.
+3.  **Install Dependencies:**
+    The application should run this step automatically upon first launch. If the applications fails to load all dependencies, please run the following code in the RStudio Console     to install required packages:
+    ```r
+    install.packages(c("shiny", "shinythemes", "shinyjs", "shinyWidgets", "shinybusy", 
+                       "DT", "yaml", "dplyr", "tidyr", "readxl", "openxlsx", "lubridate", 
+                       "digest", "rlang", "tibble", "fs", "purrr", "scales", "vegan", 
+                       "cluster", "factoextra", "ggplot2", "MASS", "dynamicTreeCut", 
+                       "glue", "stringdist", "phytoclass"))
+    ```
+
+### Running the App
+1.  Open `app.R` in RStudio.
+2.  Click the **Run App** button (top right of the script editor).
+
+## Workflow Guide
+
+1.  **Configuration:** Set algorithm parameters (Niter, Step Size), QC thresholds, and Environmental Filters.
+2.  **Upload Data:** Load your raw HPLC Excel files.
+3.  **Check Columns:** Use the interactive wizard to map source columns to required pigment keys.
+4.  **QC & Filtering:** Automatically audit samples for duplicates, missing values, and environmental outliers.
+5.  **Grouping Strategy:** Choose to analyze files individually or use clustering to pool samples with similar pigment signatures (recommended).
+6.  **Optimization:** Execute the `phytoclass` algorithm. The app automatically selects `Fm_Pro` or `Fm_NoPro` based on the presence of Divinyl Chlorophyll *a*.
+7.  **Reporting:** Explore results via an interactive dashboard and download a comprehensive report package (Clean data + Audit logs + Plots).
+
+## Citation
+If you use this tool, please cite:
+> **Quinlan, L.B. (2025).** phytoclassShiny: An R-Based Application for Phytoplankton Community Analysis (Version 1.0). Zenodo. [DOI Pending]
+
+### Key References
+*   **Hayward, A., et al.** (2023). *phytoclass*: A pigment-based chemotaxonomic method to determine the biomass of phytoplankton classes. *Limnology and Oceanography: Methods*, 21, 220–241.
+*   **Viljoen, J. J., et al.** (2025). Winter Dynamics of Phytoplankton and Micronutrients in the Southern Ocean. *JGR Oceans*, 130, e2025JC022431.
+*   **Mackey, M. D., et al.** (1996). CHEMTAX - a program for estimating class abundances from chemical markers: application to HPLC measurements of phytoplankton. *Mar. Ecol. Prog. Ser.*, 144, 265–283.
+
+## License
+**GNU General Public License v3.0**
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License. It is intended to remain a free, open-access tool for the scientific community and cannot be incorporated into proprietary software for profit.

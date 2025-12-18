@@ -1,0 +1,123 @@
+# ============================================================================
+#
+#   _phytoclass_Shiny V1.0 - CONFIGURATION TEMPLATE
+#
+#   Description:
+#   This is the read-only default template that defines all available
+#   parameters for the application workflow. User settings are saved to,
+#   and loaded from, `config_session.yaml`.
+#
+# ============================================================================
+
+general:
+  project_name: PhytoclassShiny_Project
+  config_version: 1.0
+  # Metadata keys are non-pigment columns essential for context.
+  # `year`, `month`, `day` are the primary date fields; `date` is a fallback.
+  metadata_keys: [latitude, longitude, depth, year, month, day, date, time, internal_source_id, Tchla]
+  # Essential pigments required for the core algorithm to run.
+  essential_pigments: [Dvchla, Chl_b, Chl_c1, Chl_c3, Per, X19but, Fuco, X19hex, Pra, Viol, Allo, Zea, Lut, Neox]
+
+workspace:
+  # Default paths relative to the application's root directory.
+  output_directory: phyto_output/
+  fm_pro_matrix_path: R/Fm_matrices/Fm_Pro.xlsx
+  fm_nopro_matrix_path: R/Fm_matrices/Fm_NoPro.xlsx
+  
+column_aliases:
+  # Maps standard internal keys (left) to a list of possible column names
+  # found in raw data files (right). This allows for flexible, case-insensitive mapping.
+  latitude: [latitude, lat, Lat, LATITUDE, "Lat."]
+  longitude: [longitude, Longitude, lon, Lon, long, Long, LONGITUDE, "Lon."]
+  depth: [depth, Depth, depth_m, Depth_m, "Depth (m)"]
+  year: [year, Year, YEAR, YR]
+  month: [month, Month, MONTH, MON]
+  day: [day, Day, DAY, DY]
+  date: [date, Date, DATE, SampleDate, sample_date, Sampling_date_UTC]
+  time: [time, Time, TIME, SampleTime, sample_time, Sampling_time_UTC]
+  internal_source_id: [sample_id, station_id, Sample_num, Station, Site, Sample_code, cruise]
+  Tchla: [Tchla, Total_Chlorophyll_a, Total.Chlorophyll.a, "TChl a", "Total Chla (ng/L)"]
+  Dvchla: [Dvchla, DVchla, Divinyl_Chlorophyll_a, "DVChla (ng/L)", DVChl_a]
+  Chl_b: [Chl_b, TChlb, Chlorophyll_b, "Chlb (ng/L)", Chl.b]
+  Chl_c1: [Chl_c1, Chl_c1c2, "Chlc1 (ng/L)", "Chlc1+c2 (ng/L)"]
+  Chl_c3: [Chl_c3, Chlorophyll_c3, "Chlc3 (ng/L)"]
+  Per: [Per, Perid, Peri, "Perid (ng/L)"]
+  X19but: [X19but, "19'-Butanoyloxyfucoxanthin", "19But (ng/L)", But, "19'-But"]
+  Fuco: [Fuco, Fucoxanthin, "Fucox (ng/L)", Fucox]
+  X19hex: [X19hex, Hex, "19Hex (ng/L)", "19'-Hex"]
+  Pra: [Pra, Pras, Prasino, Prasinoxanthin, "Prasino (ng/L)"]
+  Viol: [Viol, Violaxanthin, "Violax (ng/L)", Violax]
+  Allo: [Allo, Alloxanthin, "Allox (ng/L)"]
+  Zea: [Zea, Zeaxanthin, "Zeax (ng/L)", Zeax]
+  Lut: [Lut, Lutein, "Lutein (ng/L)"]
+  Neox: [Neox, Neoxanthin, "Neox (ng/L)", Neo]
+
+filtering:
+  # Default states for metadata-based filtering rules.
+  geospatial: {enabled: false, min_latitude: -90, max_latitude: 90, min_longitude: -180, max_longitude: 180}
+  temporal: {enabled: false, start_date: '1900-01-01', end_date: '2030-01-01'}
+  depth: {enabled: false, min_depth: 0, max_depth: 2000}
+
+data_cleaning:
+  # Default states for data quality control rules.
+  handle_duplicates: {enabled: true}
+  handle_pigment_nas: {enabled: true}
+  handle_zero_pigment_sum: {enabled: true}
+  enforce_non_negative_pigments: {enabled: true}
+
+clustering:
+  # Parameters for the advanced clustering workflow (Step 5).
+  
+  # --- Pre-processing Pipeline ---
+  imputation_method: 'none'         # Options: 'none', 'max', 'min'
+  normalization_method: 'none'      # Options: 'none', 'tchla'
+  transformation_method: 'log1p'    # Options: 'none', 'log1p', 'boxcox'
+
+  # --- Algorithm Settings ---
+  cluster_method: 'hclust'          # Options: 'hclust', 'kmeans', 'pam'
+  distance_method: 'bray'           # Options: 'bray', 'euclidean', 'manhattan'
+  cluster_definition: 'silhouette'  # Options: 'silhouette' (DTC method removed for simplicity)
+  
+  # --- Algorithm Parameters ---
+  k_max: 15                         # Max clusters to test for silhouette method.
+  min_cluster_size: 13              # (Legacy) No longer used after DTC removal.
+
+phytoclass:
+  # Default parameters for the core phytoclass algorithm (Step 6).
+  niter: 500
+  step_size: 0.009
+
+reporting:
+  # Reserved for future reporting enhancements.
+  generate_master_summary: true
+  
+    
+# --- Visualization Settings ---
+  # Colors matched to your specific group names.
+  plotting:
+    custom_palette:
+      # --- Red Group (Diatoms) ---
+      Diatoms-1: "#CC0000"        # Dark Red
+      Diatoms-2: "#FF0000"        # Bright Red
+      
+      # --- Orange Group (Dinoflagellates) ---
+      Dinoflagellates-1: "#ED7D31" # Orange
+      
+      # --- Brown Group (Cryptophytes) ---
+      Cryptophytes: "#B45F04"     # Rust/Brown
+      
+      # --- Yellow Group (Pelagophytes) ---
+      Pelagophytes: "#FFC000"     # Gold/Yellow
+      
+      # --- Purple/Pink Group (Haptophytes) ---
+      Haptophytes: "#7030A0"      # Deep Purple
+      
+      # --- Green Group (Green Algae) ---
+      Prasinophytes: "#70AD47"    # Light/Grass Green
+      Chlorophytes: "#006400"     # Dark/Forest Green
+      
+      # --- Cyan/Blue Group (Cyanobacteria) ---
+      Syn: "#00B0F0"              # Cyan (Synechococcus)
+      Pro: "#0070C0"              # Darker Blue (Prochlorococcus)
+
+  
