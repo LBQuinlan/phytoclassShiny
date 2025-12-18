@@ -17,9 +17,9 @@ Unlike **CHEMTAX**, which utilizes steepest-descent algorithms that can be sensi
 This application has been validated against the original `phytoclass` R package using benchmark datasets from the Southern Ocean (Viljoen et al., 2025). 
 
 Regression analysis confirms that **phytoclassShiny** faithfully replicates the core package's outputs, achieving exceptionally high agreement for major phytoplankton groups:
-*   **Prochlorococcus:** $R^2 = 1.00$
-*   **Haptophytes, Prasinophytes, Cryptophytes, Dinoflagellates:** $R^2 \ge 0.99$
-*   **Diatoms:** $R^2 = 0.90$
+*   **Prochlorococcus:** R² = 1.00
+*   **Haptophytes, Prasinophytes, Cryptophytes, Dinoflagellates:** R² ≥ 0.99
+*   **Diatoms:** R² = 0.90
 
 ## Features
 *   **Intelligent Mapping:** Auto-detects defined pigment columns and warns users if specific functional groups cannot be resolved based on available pigments.
