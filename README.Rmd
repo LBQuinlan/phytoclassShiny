@@ -10,16 +10,16 @@
 
 The application wraps the core Simulated Annealing algorithm in a guided, reproducible workflow that enforces data handling, quality control, and reporting.
 
-### ⚠️ Methodological Distinction
+### Methodological Distinction
 Unlike **CHEMTAX**, which utilizes steepest-descent algorithms that can be sensitive to initial starting conditions, **phytoclass** uses **Simulated Annealing** to search the global solution space. Consequently, this method does *not* require the strict curation of region-specific initial pigment ratio tables ($F_0$) often needed to prevent bias in traditional approaches.
 
 ## Validation & Accuracy
 This application has been validated against the original `phytoclass` R package using benchmark datasets from the Southern Ocean (Viljoen et al., 2025). 
 
 Regression analysis confirms that **phytoclassShiny** faithfully replicates the core package's outputs, achieving exceptionally high agreement for major phytoplankton groups:
-*   **Prochlorococcus:** $R^2 = 1.00$
-*   **Haptophytes, Prasinophytes, Cryptophytes, Dinoflagellates:** $R^2 \ge 0.99$
-*   **Diatoms:** $R^2 = 0.90$
+*   **Prochlorococcus:** R² = 1.00
+*   **Haptophytes, Prasinophytes, Cryptophytes, Dinoflagellates:** R² ≥ 0.99
+*   **Diatoms:** R² = 0.90
 
 ## Features
 *   **Intelligent Mapping:** Auto-detects defined pigment columns and warns users if specific functional groups cannot be resolved based on available pigments.
@@ -37,7 +37,7 @@ You must have [R](https://cran.r-project.org/) and [RStudio](https://posit.co/do
 1.  **Download:** Clone this repository or download the ZIP file.
 2.  **Open:** Double-click `phytoclassShiny.Rproj` to open the project in RStudio.
 3.  **Install Dependencies:**
-    The application should run this step automatically upon first launch. If the applications fails to load all dependencies, please run the following code in the RStudio Console     to install required packages:
+    The application should run this step automatically upon first launch. If the applications fails to load all dependencies, please run the following code in the RStudio Console to install required packages:
     ```r
     install.packages(c("shiny", "shinythemes", "shinyjs", "shinyWidgets", "shinybusy", 
                        "DT", "yaml", "dplyr", "tidyr", "readxl", "openxlsx", "lubridate", 
@@ -62,7 +62,7 @@ You must have [R](https://cran.r-project.org/) and [RStudio](https://posit.co/do
 
 ## Citation
 If you use this tool, please cite:
-> **Quinlan, L.B. (2025).** phytoclassShiny: An R-Based Application for Phytoplankton Community Analysis (Version 1.0). Zenodo. [DOI Pending]
+> **Quinlan, L.B. (2025).** phytoclassShiny: An R-Based Application for Phytoplankton Community Analysis (Version 1.0). Zenodo. https://doi.org/10.5281/zenodo.17977697
 
 ### Key References
 *   **Hayward, A., et al.** (2023). *phytoclass*: A pigment-based chemotaxonomic method to determine the biomass of phytoplankton classes. *Limnology and Oceanography: Methods*, 21, 220–241.
