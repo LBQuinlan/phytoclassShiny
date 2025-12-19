@@ -155,29 +155,31 @@ run_phytoclass_analysis <- function(data_for_phyto, config, fm_matrices, rename_
   
   sm_df <- data.frame(matrix(0, nrow = nrow(data), ncol = length(standard_pigment_names)))
   colnames(sm_df) <- standard_pigment_names
-  rownames(sm_df) <- data$UniqueID
+  
+  # Ensure valid rownames
+  if("UniqueID" %in% colnames(data)) {
+    rownames(sm_df) <- as.character(data$UniqueID)
+  } else {
+    rownames(sm_df) <- as.character(seq_len(nrow(data)))
+  }
   
   for (std_name in standard_pigment_names) {
     # Use the passed function to determine the column name
     actual_col_name <- col_finder_func(std_name)
     
-    if (!is.na(actual_col_name)) {
-      # This pipeline guarantees a clean numeric vector.
-      vals <- data[[actual_col_name]] %>%
-        safe_as_numeric() %>%
-        tidyr::replace_na(0)
+    if (!is.na(actual_col_name) && actual_col_name %in% colnames(data)) {
       
+      # 1. Force Numeric
+      vals <- safe_as_numeric(data[[actual_col_name]])
+      
+      # 2. Strict Clean-up: Handle NA, NaN, Inf, and Negatives
+      vals[!is.finite(vals)] <- 0
       vals[vals < 0] <- 0
+      
       sm_df[[std_name]] <- vals
     }
   }
   
   sm_matrix <- as.matrix(sm_df)
-  
-  if (any(!is.finite(sm_matrix))) {
-    warning("Unexpected non-finite values were found in the final Sm matrix and coerced to 0.", call. = FALSE)
-    sm_matrix[!is.finite(sm_matrix)] <- 0
-  }
-  
   return(sm_matrix)
 }

@@ -136,8 +136,9 @@ calculate_sMAPE_R2 <- function(S_actual, C_estimated, F_estimated) {
   return(list(mean_sMAPE = mean_sMAPE, R_squared = r_squared))
 }
 
-generate_run_summary_text <- function(config, master_qc_data, analysis_datasets, cluster_results_log) {
+generate_run_summary_text <- function(config, master_qc_data, analysis_datasets, cluster_diagnostics = NULL) {
   
+  # --- 1. QC & Filter Stats ---
   qc_rules <- c(
     if (isTRUE(config$data_cleaning$handle_duplicates$enabled)) "Duplicates",
     if (isTRUE(config$data_cleaning$handle_pigment_nas$enabled)) "NAs",
@@ -151,47 +152,64 @@ generate_run_summary_text <- function(config, master_qc_data, analysis_datasets,
     if (isTRUE(config$filtering$depth$enabled)) "Depth"
   )
   
-  # *** INTELLIGENT STRATEGY DISPLAY ***
-  if (!is.null(cluster_results_log)) {
-    # If this log exists, Clustering was selected in Step 5
-    method <- config$clustering$cluster_method %||% "Unknown"
-    norm <- config$clustering$normalization_method %||% "Unknown"
-    trans <- config$clustering$transformation_method %||% "Unknown"
+  qc_block <- paste(
+    "--- QC & Filtering ---",
+    paste("Total Eligible Samples:", nrow(master_qc_data)),
+    paste("QC Rules Active:", paste(qc_rules, collapse=", ")),
+    paste("Filters Active:", if(length(filters) > 0) paste(filters, collapse=", ") else "None"),
+    sep = "\n"
+  )
+  
+  # --- 2. Intelligent Strategy Block ---
+  strategy_block <- ""
+  
+  if (!is.null(cluster_diagnostics)) {
+    # CLUSTERING MODE
+    method_raw <- cluster_diagnostics$info$method %||% config$clustering$cluster_method %||% "hclust"
+    method_nice <- if(method_raw == "hclust") "Hierarchical (Ward.D2)" else "K-Means"
     
-    # Prettify labels
-    if(method == "hclust") method <- "Hierarchical (Ward.D2)"
-    if(method == "kmeans") method <- "K-Means"
-    if(norm == "tchla") norm <- "Ratio to Tchla"
-    if(norm == "none") norm <- "Raw Concentration"
-    if(trans == "log1p") trans <- "Log(x+1)"
+    # Future proofing: Explicitly state metrics even if hardcoded in R code for now
+    dist_metric <- if(method_raw == "hclust") "Euclidean (Log-Transformed)" else "Euclidean"
+    
+    norm_mode <- config$clustering$normalization_method %||% "tchla"
+    similarity_basis <- if(norm_mode == "tchla") "Pigment Ratios (Relative to Tchla)" else "Raw Pigment Concentrations"
+    
+    cluster_counts <- sapply(analysis_datasets, function(x) nrow(x$data))
+    size_str <- paste(paste0("C", seq_along(cluster_counts), ": ", cluster_counts), collapse = " | ")
     
     strategy_block <- paste(
       "\n--- Analysis Strategy (CLUSTERING) ---",
-      paste("Method:", method),
-      paste("Normalization:", norm),
-      paste("Transformation:", trans),
-      paste("Total Clusters:", length(analysis_datasets)),
+      paste("Method:", method_nice),
+      paste("Distance Metric:", dist_metric),
+      paste("Similarity Basis:", similarity_basis),
+      paste("Optimal k (Elbow Method):", cluster_diagnostics$info$optimal_k %||% "N/A"),
+      paste("Final k Used:", cluster_diagnostics$info$used_k %||% "N/A"),
+      paste("Total Clusters Created:", length(analysis_datasets)),
+      paste("Samples Breakdown:", size_str),
       sep = "\n"
     )
+    
   } else {
-    # Default Source File strategy
+    # SOURCE FILE MODE
+    file_count <- length(unique(master_qc_data$source_dataset))
+    
     strategy_block <- paste(
-      "\n--- Analysis Strategy ---",
-      "Grouping Method: By Source File",
-      paste("Analysis Groups:", length(analysis_datasets)),
+      "\n--- Analysis Strategy (SOURCE FILES) ---",
+      paste("Method:", "By Source File"),
+      paste("Files Loaded:", file_count),
+      paste("Total Analysis Groups:", length(analysis_datasets)),
       sep = "\n"
     )
   }
   
-  paste(
-    "--- QC & Filtering ---",
-    paste("Samples Passing:", nrow(master_qc_data)),
-    paste("QC Rules On:", paste(qc_rules, collapse=", ")),
-    paste("Filters On:", if(length(filters) > 0) paste(filters, collapse=", ") else "None"),
-    strategy_block,
+  # --- 3. Run Params ---
+  param_block <- paste(
     "\n--- Phytoclass Parameters ---",
-    paste("Niter:", config$phytoclass$niter),
-    paste("Step Size:", config$phytoclass$step_size),
+    "Optimizer Input: Raw Concentrations (Standardized)", 
+    paste("Simulated Annealing Iterations (Niter):", config$phytoclass$niter),
+    paste("Temperature Step (Cooling):", config$phytoclass$step_size),
     sep = "\n"
   )
+  
+  return(paste(qc_block, strategy_block, param_block, sep = "\n"))
 }

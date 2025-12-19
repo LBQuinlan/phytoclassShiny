@@ -54,18 +54,18 @@ load_all_files <- function(file_input_df, config, session_log_f) {
   # Standardize Dates
   processed_data <- .standardize_datetime_columns(processed_data, map_result$rename_map)
   
-  # Ensure Y/M/D are in the map if created
-  if ("year" %in% colnames(processed_data) && !"year" %in% names(map_result$rename_map)) {
-    map_result$rename_map$year <- "year"
-    map_result$rename_map$month <- "month"
-    map_result$rename_map$day <- "day"
-  }
+  # CRITICAL FIX: Update map if standardized date columns were created.
+  # This overwrites the map to point to the new numeric columns (year/month/day),
+  # preventing name collisions in Step 4.
+  if ("year" %in% colnames(processed_data)) map_result$rename_map$year <- "year"
+  if ("month" %in% colnames(processed_data)) map_result$rename_map$month <- "month"
+  if ("day" %in% colnames(processed_data)) map_result$rename_map$day <- "day"
   
   return(list(
     name = dataset_name,
     data = as_tibble(processed_data),
     data_original = as_tibble(raw_data),
-    original_colnames = original_colnames, # <--- THE FIX: Explicitly store this for Utils.R
+    original_colnames = original_colnames,
     cleaned_colnames = cleaned_colnames,
     rename_map = map_result$rename_map,
     log = list(initial_rows = nrow(raw_data), initial_cols = ncol(raw_data))
@@ -75,12 +75,9 @@ load_all_files <- function(file_input_df, config, session_log_f) {
 .map_columns <- function(data, original_colnames, aliases_config) {
   rename_map <- list()
   for (std_key in names(aliases_config)) {
-    # FIX: unlist() ensures we have a character vector, even if YAML read it as a list
     aliases <- unlist(aliases_config[[std_key]])
-    
     matches <- original_colnames[tolower(original_colnames) %in% tolower(aliases)]
     if (length(matches) > 0) {
-      # Take first match
       rename_map[[std_key]] <- make.names(matches[1], unique=TRUE)
     }
   }
@@ -89,12 +86,11 @@ load_all_files <- function(file_input_df, config, session_log_f) {
 
 .standardize_datetime_columns <- function(data, rename_map) {
   
-  # Helper to clean YMD
   .clean_ymd <- function(d) {
     d %>% mutate(year=safe_as_numeric(year), month=safe_as_numeric(month), day=safe_as_numeric(day))
   }
   
-  # 1. Check for explicit Year/Month/Day columns first
+  # 1. Check for explicit Year/Month/Day
   has_ymd <- all(c("year", "month", "day") %in% names(rename_map))
   if (has_ymd) {
     data <- data %>%
@@ -112,34 +108,22 @@ load_all_files <- function(file_input_df, config, session_log_f) {
     date_col <- rename_map$date
     raw_dates <- data[[date_col]]
     
-    # A. Try Standard Text Parsing (ISO, US, Int)
     date_formats <- c("Ymd", "ymd", "mdY", "mdy", "dmY", "dmy", "Ymd HMS", "ymd HMS")
     parsed <- lubridate::parse_date_time(raw_dates, orders = date_formats, quiet = TRUE)
     
-    # B. Try Excel Serial Number Parsing (Fallback for NAs)
-    # Excel stores dates as days since Dec 30, 1899.
-    # We check if we have NAs that look like numbers (e.g. "42926")
+    # Excel Serial Fallback
     na_indices <- which(is.na(parsed))
-    
     if (length(na_indices) > 0) {
-      # Try converting only the NA entries as numeric -> Date
-      suppressWarnings({
-        numeric_vals <- as.numeric(raw_dates[na_indices])
-      })
+      raw_subset <- raw_dates[na_indices]
+      numeric_vals <- suppressWarnings(as.numeric(raw_subset))
+      valid_mask <- !is.na(numeric_vals) & numeric_vals > 1000
       
-      # Valid serials are usually > 10000 (roughly year 1927+)
-      valid_serials <- !is.na(numeric_vals) & numeric_vals > 1000
-      
-      if (any(valid_serials)) {
-        # Convert valid serials to Date objects
-        restored_dates <- as.POSIXct(as.Date(numeric_vals[valid_serials], origin = "1899-12-30"))
-        # Fill them back into the main vector
-        # Note: We need to match indices carefully
-        parsed[na_indices[valid_serials]] <- restored_dates
+      if (any(valid_mask)) {
+        restored_dates <- as.POSIXct(as.Date(numeric_vals[valid_mask], origin = "1899-12-30"))
+        parsed[na_indices[valid_mask]] <- restored_dates
       }
     }
     
-    # 3. Extract YMD from the final parsed vector
     data$year <- lubridate::year(parsed)
     data$month <- lubridate::month(parsed)
     data$day <- lubridate::day(parsed)
@@ -147,7 +131,7 @@ load_all_files <- function(file_input_df, config, session_log_f) {
     return(.clean_ymd(data))
   }
   
-  # 3. Fallback: No date info found
+  # 3. Fallback
   data$year <- NA_real_; data$month <- NA_real_; data$day <- NA_real_
   return(data)
 }

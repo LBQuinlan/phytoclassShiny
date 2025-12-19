@@ -3,9 +3,8 @@
 #   _phytoclass_Shiny V1.0 - STEP 7: RESULTS & REPORTING
 #
 #   Description:
-#   The final dashboard. It creates the graphs (Area and
-#   Bar plots) and compiles your results into a time-stamped package containing clean
-#   data tables and a full audit log of the session.
+#   The final dashboard. Creates graphs, compiles the Master Excel Report,
+#   and archives the Session Config for perfect reproducibility.
 #
 # ============================================================================
 
@@ -29,7 +28,7 @@ reportingUI <- function(id) {
              ),
              wellPanel(
                h4("2. Export"),
-               p("Create a timestamped folder containing clean Result files, the Master Audit Report (with merged results), and all Plots."),
+               p("Create a timestamped folder containing clean Result files, the Master Audit Report, and a reusable Config file."),
                actionButton(ns("generate_report_package_btn"), "Download Report Package", class = "btn-primary btn-lg", width = "100%", icon = icon("download")),
                hr(),
                uiOutput(ns("report_package_status_ui"))
@@ -87,12 +86,14 @@ reportingServer <- function(id, rv, .log_event) {
       )
       
       cluster_metrics <- ""
-      if (!is.null(rv$cluster_results_log) && startsWith(ds_name, "Cluster_")) {
+      if (!is.null(rv$cluster_diagnostics) && startsWith(ds_name, "Cluster_")) {
         sample_count <- log$rows_input_to_phyto %||% "N/A"
         
         cluster_metrics <- paste(
           "\n--- Clustering Diagnostics ---",
           paste("Samples in Cluster:", sample_count),
+          paste("Optimal k (Elbow):", rv$cluster_diagnostics$info$optimal_k %||% "N/A"),
+          paste("Used k:", rv$cluster_diagnostics$info$used_k %||% "N/A"),
           sep = "\n"
         )
       }
@@ -109,7 +110,7 @@ reportingServer <- function(id, rv, .log_event) {
       return(x)
     }
     
-    # --- Helper: Palette Builder (Smart Matching) ---
+    # --- Helper: Palette Builder ---
     .get_palette <- function(data_classes) {
       config_palette <- rv$config$reporting$plotting$custom_palette
       if (is.null(config_palette)) return(NULL) 
@@ -205,7 +206,10 @@ reportingServer <- function(id, rv, .log_event) {
       }
       
       base_output_dir <- rv$config$workspace$output_directory %||% "outputs"
-      session_output_dir <- file.path(base_output_dir, rv$session_id)
+      
+      # Clean "Session" naming convention
+      timestamp <- format(Sys.time(), "%Y-%m-%d_%H%M")
+      session_output_dir <- file.path(base_output_dir, paste0("Session_", timestamp))
       plots_output_dir <- file.path(session_output_dir, "Plots")
       
       if (!dir.exists(session_output_dir)) dir.create(session_output_dir, recursive = TRUE)
@@ -218,14 +222,36 @@ reportingServer <- function(id, rv, .log_event) {
         
         # 1. Session Info
         addWorksheet(wb_master, "Session Info")
+        
+        cluster_k_auto <- if(!is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$optimal_k else "N/A"
+        cluster_k_used <- if(!is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$used_k else "N/A"
+        
+        method_raw <- rv$config$clustering$cluster_method %||% "hclust"
+        dist_metric <- if(method_raw == "hclust") "Euclidean" else "N/A (K-Means)"
+        linkage <- if(method_raw == "hclust") "Ward.D2" else "N/A"
+        
+        run_time <- if(!is.null(rv$performance_metrics)) paste(rv$performance_metrics$total_time_sec, "s") else "N/A"
+        speed <- if(!is.null(rv$performance_metrics)) paste(rv$performance_metrics$time_per_sample, "s") else "N/A"
+        
         session_info <- data.frame(
-          Parameter = c("Session ID", "Date", "Niter", "Step Size", "QC Duplicates", "QC NAs", "Geo Filter", "Temp Filter"),
-          Value = c(rv$session_id, as.character(Sys.Date()), 
-                    rv$config$phytoclass$niter, rv$config$phytoclass$step_size,
-                    rv$config$data_cleaning$handle_duplicates$enabled,
-                    rv$config$data_cleaning$handle_pigment_nas$enabled,
-                    rv$config$filtering$geospatial$enabled,
-                    rv$config$filtering$temporal$enabled)
+          Parameter = c(
+            "Session ID", "Date", 
+            "Optimization Iterations (Niter)", "Cooling Step", 
+            "Clustering Method", "Distance Metric", "Linkage Method",
+            "Optimal K (Elbow)", "Final K Used",
+            "Total Runtime", "Avg Speed (sec/sample)",
+            "QC Duplicates", "Geo Filter", "Temp Filter"
+          ),
+          Value = c(
+            rv$session_id, as.character(Sys.Date()), 
+            rv$config$phytoclass$niter, rv$config$phytoclass$step_size,
+            method_raw, dist_metric, linkage,
+            as.character(cluster_k_auto), as.character(cluster_k_used),
+            run_time, speed,
+            rv$config$data_cleaning$handle_duplicates$enabled,
+            rv$config$filtering$geospatial$enabled,
+            rv$config$filtering$temporal$enabled
+          )
         )
         writeData(wb_master, "Session Info", session_info)
         
@@ -239,7 +265,7 @@ reportingServer <- function(id, rv, .log_event) {
         if (length(rv$resolution_warnings) > 0) {
           warn_df <- stack(rv$resolution_warnings)
           colnames(warn_df) <- c("Issue_Detected", "Dataset_Name")
-          warn_df <- warn_df %>% select(Dataset_Name, Issue_Detected)
+          warn_df <- warn_df %>%  dplyr::select(Dataset_Name, Issue_Detected)
           addWorksheet(wb_master, "Resolution Warnings")
           writeData(wb_master, "Resolution Warnings", warn_df)
         }
@@ -249,7 +275,7 @@ reportingServer <- function(id, rv, .log_event) {
         addWorksheet(wb_master, "Session Log")
         writeData(wb_master, "Session Log", log_df)
         
-        # 5. Full Audit Trail (All Samples + Flags)
+        # 5. Full Audit Trail
         audit_list <- list()
         if (length(rv$datasets_processed) > 0) {
           for (n in names(rv$datasets_processed)) {
@@ -257,27 +283,23 @@ reportingServer <- function(id, rv, .log_event) {
             if (!is.null(d_ann)) audit_list[[n]] <- d_ann
           }
           if (length(audit_list) > 0) {
-            master_audit_df <- bind_rows(audit_list)
+            master_audit_df <- dplyr::bind_rows(audit_list)
             addWorksheet(wb_master, "Triage Log (All Samples)")
             writeData(wb_master, "Triage Log (All Samples)", master_audit_df)
           }
         }
         
-        # 6. *** GLOBAL RE-INTEGRATION (The Unified Results Sheet) ***
+        # 6. Unified Results
         unified_results <- list()
         for(ds_name in names(rv$analyzed_datasets)) {
           ds <- rv$analyzed_datasets[[ds_name]]
           if(!is.null(ds$data_final)) {
-            # Clean it first
             clean <- ds$data_final %>%
               dplyr::select(-any_of(c("cleaning_status", "duplicate_status", "qc_pass",
                                       "filter_status_geo", "filter_status_temporal", 
                                       "filter_status_depth", "original_row_num", "year", "month", "day")))
             colnames(clean) <- .clean_names(colnames(clean))
-            
-            # Tag it with the Analysis Group name (so we know which file/cluster it came from)
             clean$Analysis_Group <- ds_name
-            
             if("UniqueID" %in% names(clean)) {
               clean <- clean %>% dplyr::select(UniqueID, Analysis_Group, everything())
             }
@@ -291,9 +313,19 @@ reportingServer <- function(id, rv, .log_event) {
           writeData(wb_master, "All Samples Combined", global_df)
         }
         
-        saveWorkbook(wb_master, file = file.path(session_output_dir, "Master_Session_Report.xlsx"), overwrite = TRUE)
+        saveWorkbook(wb_master, file = file.path(session_output_dir, "PhytoClass_Master_Report.xlsx"), overwrite = TRUE)
         
-        # 7. Individual Result Files & Plots
+        # 7. Plots, Config & Individual Files
+        
+        # --- ARCHIVE CONFIG FOR REPRODUCIBILITY ---
+        # Save as "config_session.yaml" so it can be drag-and-dropped back to root
+        save_config(rv$config, file.path(session_output_dir, "config_session.yaml"))
+        
+        if (!is.null(rv$cluster_diagnostics) && !is.null(rv$cluster_diagnostics$elbow_plot)) {
+          ggsave(filename = file.path(plots_output_dir, "Elbow_Plot_Optimization.png"), 
+                 plot = rv$cluster_diagnostics$elbow_plot, width = 8, height = 6, dpi = 300)
+        }
+        
         for(ds_name in names(rv$analyzed_datasets)) {
           ds <- rv$analyzed_datasets[[ds_name]]
           if(!is.null(ds$data_final)) {
@@ -302,9 +334,8 @@ reportingServer <- function(id, rv, .log_event) {
                                       "filter_status_geo", "filter_status_temporal", "filter_status_depth",
                                       "original_row_num", "year", "month", "day")))
             colnames(clean_output) <- .clean_names(colnames(clean_output))
-            if("UniqueID" %in% names(clean_output)) {
-              clean_output <- clean_output %>% dplyr::select(UniqueID, everything())
-            }
+            if("UniqueID" %in% names(clean_output)) clean_output <- clean_output %>% dplyr::select(UniqueID, everything())
+            
             write.xlsx(clean_output, file = file.path(session_output_dir, paste0("Result_", ds_name, ".xlsx")))
             
             p_area <- .plot_area(ds$data_final)
