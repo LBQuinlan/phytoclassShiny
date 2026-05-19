@@ -1,249 +1,152 @@
-# ============================================================================
-#
-#   _phytoclass_Shiny V1.0 - STEP 3: COLUMN MAPPING
-#
-#   Description:
-#   Manages the Column Mapping Wizard. "Clean Sheet" UI design for maximum
-#   data visibility and minimal clutter.
-#
-# ============================================================================
-
-# --- UI Function ---
 validationUI <- function(id) {
-  ns <- NS(id)
-  tagList(
-    # Header & Concise Instructions
-    h3("Step 3: Check Column Mappings"),
-    div(style = "margin-bottom: 20px; font-size: 1.1em; color: #555;",
-        "Select any row flagged ", 
-        span(class="label label-warning", style="font-size: 0.9em; vertical-align: middle;", "MISSING ESSENTIALS"), 
-        " to launch the Mapping Wizard."
+  ns <- shiny::NS(id)
+  shiny::tagList(
+    shiny::h3("Step 3: Check Column Names"),
+    shiny::div(style = "margin-bottom: 20px; font-size: 1.1em; color: #555;",
+               "Select any row flagged ", 
+               shiny::span(class="badge bg-warning text-dark", style="font-size: 0.9em; vertical-align: middle;", "NEEDS MAPPING"), 
+               " to teach the app which column is which."
     ),
-    
-    # The Table (Clean, Full Width)
-    DTOutput(ns("mapping_validation_summary_table")),
-    
-    br(),
-    
-    # The Action Bar
-    fluidRow(
-      # Undo (Left, Secondary)
-      column(4, 
-             actionButton(ns("rollback_mappings_btn"), "Undo Last Change", 
-                          icon = icon("undo"), 
-                          class = "btn-default", # Grey/Neutral style
-                          width = "100%")
-      ),
-      # Spacer
-      column(4), 
-      # Confirm (Right, Hero)
-      column(4, 
-             shinyjs::disabled(
-               actionButton(ns("commit_all_mappings_btn"), "Confirm Mappings", 
-                            icon = icon("check-double"), 
-                            class = "btn-success btn-lg", # Big Green
-                            width = "100%")
-             )
-      )
+    bslib::card(DT::DTOutput(ns("mapping_validation_summary_table"))),
+    shiny::br(),
+    shiny::fluidRow(
+      shiny::column(4, shiny::actionButton(ns("rollback_mappings_btn"), "Undo Last Change", icon = shiny::icon("undo"), class = "btn-outline-secondary", width = "100%")),
+      shiny::column(4), 
+      shiny::column(4, shinyjs::disabled(shiny::actionButton(ns("commit_all_mappings_btn"), "Save Mappings", icon = shiny::icon("check-double"), class = "btn-success btn-lg fw-bold", width = "100%")))
     )
   )
 }
 
-# --- Server Function ---
-validationServer <- function(id, rv, .log_event, .update_workflow_state) {
-  moduleServer(id, function(input, output, session) {
+validationServer <- function(id, rv, .log_event, .update_workflow_state, session_parent) {
+  shiny::moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
-    wizard_keys_dynamic <- reactive({
-      req(rv$config)
-      keys <- c(rv$config$general$essential_pigments, "Tchla")
-      if (isTRUE(rv$config$filtering$geospatial$enabled)) keys <- c(keys, "latitude", "longitude")
-      if (isTRUE(rv$config$filtering$temporal$enabled)) keys <- c(keys, "year", "month", "day")
-      if (isTRUE(rv$config$filtering$depth$enabled)) keys <- c(keys, "depth")
-      unique(keys)
+    wizard_keys_dynamic <- shiny::reactive({
+      shiny::req(rv$config)
+      keys <- base::c(rv$config$general$essential_pigments, "Tchla")
+      if (base::isTRUE(rv$config$filtering$geospatial$enabled)) keys <- base::c(keys, "latitude", "longitude")
+      if (base::isTRUE(rv$config$filtering$temporal$enabled)) keys <- base::c(keys, "year", "month", "day")
+      if (base::isTRUE(rv$config$filtering$depth$enabled)) keys <- base::c(keys, "depth")
+      base::unique(keys)
     })
     
-    blocker_keys_dynamic <- reactive({
-      req(rv$config)
-      keys <- c("Tchla")
-      if (isTRUE(rv$config$filtering$geospatial$enabled)) keys <- c(keys, "latitude", "longitude")
-      if (isTRUE(rv$config$filtering$temporal$enabled)) keys <- c(keys, "year", "month", "day")
-      if (isTRUE(rv$config$filtering$depth$enabled)) keys <- c(keys, "depth")
-      unique(keys)
+    blocker_keys_dynamic <- shiny::reactive({
+      shiny::req(rv$config)
+      keys <- base::c("Tchla")
+      if (base::isTRUE(rv$config$filtering$geospatial$enabled)) keys <- base::c(keys, "latitude", "longitude")
+      if (base::isTRUE(rv$config$filtering$temporal$enabled)) keys <- base::c(keys, "year", "month", "day")
+      if (base::isTRUE(rv$config$filtering$depth$enabled)) keys <- base::c(keys, "depth")
+      base::unique(keys)
     })
     
-    mapping_summary <- eventReactive(list(rv$staging_datasets, rv$mapping_trigger, wizard_keys_dynamic()), {
-      req(length(rv$staging_datasets) > 0)
-      purrr::map_df(rv$staging_datasets, function(ds) { .get_mapping_status(ds, wizard_keys_dynamic()) }) %>%
-        mutate(
-          Missing_str = purrr::map_chr(Missing, ~paste(.x, collapse = ", ")),
-          Missing_Count = purrr::map_int(Missing, length)
+    mapping_summary <- shiny::eventReactive(base::list(rv$staging_datasets, rv$mapping_trigger, wizard_keys_dynamic()), {
+      shiny::req(base::length(rv$staging_datasets) > 0)
+      purrr::map_df(rv$staging_datasets, function(ds) { 
+        .get_mapping_status(ds, wizard_keys_dynamic()) 
+      }) |>
+        dplyr::mutate(
+          Missing_str = purrr::map_chr(Missing, ~base::paste(.x, collapse = ", ")),
+          Missing_Count = purrr::map_int(Missing, base::length)
         )
     })
     
-    output$mapping_validation_summary_table <- renderDT({
-      req(mapping_summary())
+    output$mapping_validation_summary_table <- DT::renderDT({
+      shiny::req(mapping_summary())
+      df_for_display <- mapping_summary()[, base::c("Dataset", "Mapping Health", "Missing_Count", "Missing_str")]
+      base::colnames(df_for_display) <- base::c("Dataset", "Status", "Missing Count", "Unmapped Keys")
       
-      df_for_display <- mapping_summary()[, c("Dataset", "Mapping Health", "Missing_Count", "Missing_str")]
-      colnames(df_for_display) <- c("Dataset", "Status", "Missing Count", "Unmapped Keys")
-      
-      datatable(df_for_display, 
-                options = list(
-                  pageLength = 15, # Show more rows by default since we removed panels
-                  searching = FALSE,
-                  autoWidth = TRUE,
-                  columnDefs = list(list(className = 'dt-center', targets = 2)),
-                  order = list(list(1, 'asc'), list(2, 'desc'))
-                ), 
-                rownames = FALSE, 
-                selection = 'single',
-                class = "cell-border stripe hover compact"
-      ) %>%
-        formatStyle("Status", backgroundColor = styleEqual(c("OK", "MISSING ESSENTIALS"), c("#C6EFCE", "#FFEB9C"))) %>%
-        formatStyle("Missing Count", fontWeight = "bold")
+      DT::datatable(df_for_display, options = base::list(pageLength = 15, searching = FALSE, autoWidth = TRUE, columnDefs = base::list(base::list(className = 'dt-center', targets = 2)), order = base::list(base::list(1, 'asc'), base::list(2, 'desc'))), rownames = FALSE, selection = 'single', class = "cell-border stripe hover compact") |>
+        DT::formatStyle("Status", backgroundColor = DT::styleEqual(base::c("OK", "NEEDS MAPPING"), base::c("#d1e7dd", "#fff3cd"))) |>
+        DT::formatStyle("Missing Count", fontWeight = "bold")
     })
     
-    observeEvent(input$mapping_validation_summary_table_rows_selected, {
-      req(mapping_summary())
+    shiny::observeEvent(input$mapping_validation_summary_table_rows_selected, {
+      shiny::req(mapping_summary())
       selected_row <- input$mapping_validation_summary_table_rows_selected
-      if (length(selected_row) == 0) return()
-      
+      if (base::length(selected_row) == 0) return()
       dataset_name <- mapping_summary()$Dataset[selected_row]
       ds_status <- mapping_summary()[selected_row, ]
-      
-      if (length(ds_status$Missing[[1]]) > 0) {
-        rv$current_mapping_dataset <- dataset_name
-        .show_mapping_modal(dataset_name, ds_status$Missing[[1]])
-      } else { 
-        showNotification("All keys are mapped.", type = "message") 
-      }
+      if (base::length(ds_status$Missing[[1]]) > 0) { rv$current_mapping_dataset <- dataset_name; .show_mapping_modal(dataset_name, ds_status$Missing[[1]])
+      } else { shiny::showNotification("All keys are mapped.", type = "message") }
     })
     
     .show_mapping_modal <- function(dataset_name, missing_keys) {
       ds_obj <- rv$staging_datasets[[dataset_name]]
-      req(ds_obj)
+      shiny::req(ds_obj)
+      blocker_alerts <- base::list()
+      if ("depth" %in% missing_keys && base::isTRUE(rv$config$filtering$depth$enabled)) blocker_alerts <- base::c(blocker_alerts, "Depth is required because the Depth Filter is enabled in Step 1.")
+      if (base::any(base::c("latitude", "longitude") %in% missing_keys) && base::isTRUE(rv$config$filtering$geospatial$enabled)) blocker_alerts <- base::c(blocker_alerts, "Lat/Lon are required because the Location Filter is enabled in Step 1.")
+      if (base::any(base::c("year", "month", "day") %in% missing_keys) && base::isTRUE(rv$config$filtering$temporal$enabled)) blocker_alerts <- base::c(blocker_alerts, "Date columns are required because the Date Filter is enabled in Step 1.")
       
-      blocker_alerts <- list()
-      if ("depth" %in% missing_keys && isTRUE(rv$config$filtering$depth$enabled)) {
-        blocker_alerts <- c(blocker_alerts, "Depth is required because the Depth Filter is enabled in Step 1.")
-      }
-      if (any(c("latitude", "longitude") %in% missing_keys) && isTRUE(rv$config$filtering$geospatial$enabled)) {
-        blocker_alerts <- c(blocker_alerts, "Lat/Lon are required because the Geospatial Filter is enabled in Step 1.")
-      }
-      if (any(c("year", "month", "day") %in% missing_keys) && isTRUE(rv$config$filtering$temporal$enabled)) {
-        blocker_alerts <- c(blocker_alerts, "Date columns are required because the Temporal Filter is enabled in Step 1.")
-      }
+      ui_header <- if (base::length(blocker_alerts) > 0) {
+        shiny::div(class = "alert alert-danger", style = "border: 2px solid #a94442;", shiny::h4("🔥 MANDATORY MAPPING REQUIRED 🔥", style="font-weight:bold; text-align: center; font-size: 1.2em;"), shiny::p("You have active filters in Step 1 that require these columns. You cannot map them to 'Leave Unmapped'."), shiny::tags$ul(base::lapply(blocker_alerts, shiny::tags$li)), shiny::hr(), shiny::p(shiny::strong("Solution:"), "If this file does not have this data, please go back to Step 1 and uncheck the relevant filter."))
+      } else { shiny::div(class = "alert alert-warning", shiny::p("Select columns for keys you have. Leave blank if the pigment is missing (it will be treated as 0).")) }
       
-      ui_header <- if (length(blocker_alerts) > 0) {
-        div(class = "alert alert-danger", style = "border: 2px solid #a94442;",
-            h4("🔥🧙‍♂️ YOU SHALL NOT PASS! 🧙‍♂️🔥", style="font-weight:bold; text-align: center; font-size: 1.4em;"), 
-            p("You have active filters in Step 1 that require these columns. You cannot map them to 'Leave Unmapped'."),
-            tags$ul(lapply(blocker_alerts, tags$li)),
-            hr(),
-            p(strong("Solution:"), "If this file does not have this data, please go back to Step 1 and uncheck the relevant filter.")
-        )
-      } else {
-        div(class = "alert alert-warning", 
-            p("Select columns for keys you have. Leave blank if the pigment is missing (it will be treated as 0).")
-        )
-      }
-      
-      mapper_inputs <- lapply(missing_keys, function(key) {
-        selectInput(inputId = ns(paste0("map_", key)), label = paste0("Map '", key, "' to:"), choices = c("Leave Unmapped" = "", ds_obj$cleaned_colnames), width = "100%")
-      })
-      
-      showModal(modalDialog(title = div(icon("magic"), paste("Mapping Wizard:", dataset_name)), size = "l", easyClose = FALSE,
-                            footer = tagList(
-                              checkboxInput(ns("apply_to_all_similar_modal"), "Apply to other datasets", value = TRUE),
-                              modalButton("Cancel", icon("times")),
-                              actionButton(ns("commit_modal_mappings_btn"), "Apply Selected", class = "btn-primary", icon = icon("check"))
-                            ),
-                            ui_header,
-                            hr(), 
-                            mapper_inputs
-      ))
+      mapper_inputs <- base::lapply(missing_keys, function(key) { shiny::selectInput(inputId = ns(base::paste0("map_", key)), label = base::paste0("Map '", key, "' to:"), choices = base::c("Leave Unmapped" = "", ds_obj$cleaned_colnames), width = "100%") })
+      shiny::showModal(shiny::modalDialog(title = shiny::div(shiny::icon("magic"), base::paste("Mapping Wizard:", dataset_name)), size = "l", easyClose = FALSE, footer = shiny::tagList(shiny::checkboxInput(ns("apply_to_all_similar_modal"), "Apply to other datasets", value = TRUE), shiny::modalButton("Cancel", shiny::icon("times")), shiny::actionButton(ns("commit_modal_mappings_btn"), "Apply Selected", class = "btn-primary", icon = shiny::icon("check"))), ui_header, shiny::hr(), mapper_inputs))
     }
     
-    observeEvent(input$commit_modal_mappings_btn, {
-      req(rv$current_mapping_dataset)
-      show_modal_spinner(text = "Applying...")
-      tryCatch({
-        success <- .apply_mappings_safe(dataset_name = rv$current_mapping_dataset, apply_to_similar = isTRUE(input$apply_to_all_similar_modal))
-        rv$mapping_trigger <- rv$mapping_trigger + 1
-        removeModal(); rv$current_mapping_dataset <- NULL
-      }, error = function(e) { .log_event(paste("ERROR:", e$message)) }, finally = { remove_modal_spinner() })
+    shiny::observeEvent(input$commit_modal_mappings_btn, {
+      shiny::req(rv$current_mapping_dataset)
+      shinybusy::show_modal_spinner(text = "Applying...")
+      base::tryCatch({
+        success <- .apply_mappings_safe(dataset_name = rv$current_mapping_dataset, apply_to_similar = base::isTRUE(input$apply_to_all_similar_modal))
+        if (base::isTRUE(success)) { rv$mapping_trigger <- rv$mapping_trigger + 1; shiny::removeModal(); rv$current_mapping_dataset <- NULL }
+      }, error = function(e) { .log_event(base::paste("ERROR:", e$message)); shiny::showNotification(e$message, type = "error", duration = 8)
+      }, finally = { shinybusy::remove_modal_spinner() })
     })
     
     .apply_mappings_safe <- function(dataset_name, apply_to_similar) {
       ds_obj <- rv$staging_datasets[[dataset_name]]
       status <- .get_mapping_status(ds_obj, wizard_keys_dynamic())
-      missing_keys <- status$Missing[[1]]
-      new_mappings <- list()
-      for (key in missing_keys) {
-        user_choice <- input[[paste0("map_", key)]]
-        if (!is.null(user_choice) && user_choice != "") new_mappings[[key]] <- user_choice
-      }
-      if (length(new_mappings) == 0) return(TRUE)
+      missing_keys <- status$Missing[[1]]; new_mappings <- base::list()
+      for (key in missing_keys) { user_choice <- input[[base::paste0("map_", key)]]; if (!base::is.null(user_choice) && user_choice != "") new_mappings[[key]] <- user_choice }
+      if (base::length(new_mappings) == 0) return(TRUE)
+      chosen_raw_cols <- base::unlist(new_mappings)
+      if (base::any(base::duplicated(chosen_raw_cols))) base::stop("Mapping Conflict: You assigned multiple standard targets to the exact same raw column. Each pigment must be mapped uniquely.")
       temp_staging <- rv$staging_datasets
-      for(key in names(new_mappings)){ temp_staging[[dataset_name]]$rename_map[[key]] <- new_mappings[[key]] }
-      if(apply_to_similar){
-        similar_datasets <- .find_similar_datasets(dataset_name, missing_keys)
-        for(sim_ds in similar_datasets){ for(key in names(new_mappings)){ temp_staging[[sim_ds]]$rename_map[[key]] <- new_mappings[[key]] } }
-      }
-      rv$mapping_history[[length(rv$mapping_history) + 1]] <- purrr::map(rv$staging_datasets, rlang::duplicate)
+      for(key in base::names(new_mappings)) temp_staging[[dataset_name]]$rename_map[[key]] <- new_mappings[[key]] 
+      if(apply_to_similar){ similar_datasets <- .find_similar_datasets(dataset_name, missing_keys); for(sim_ds in similar_datasets) for(key in base::names(new_mappings)) temp_staging[[sim_ds]]$rename_map[[key]] <- new_mappings[[key]] }
+      rv$mapping_history[[base::length(rv$mapping_history) + 1]] <- purrr::map(rv$staging_datasets, rlang::duplicate)
       rv$staging_datasets <- temp_staging
       return(TRUE)
     }
     
-    .find_similar_datasets <- function(ref, missing) {
-      names(rv$staging_datasets) %>% purrr::keep(function(n) { if(n==ref) return(FALSE); s <- .get_mapping_status(rv$staging_datasets[[n]], wizard_keys_dynamic()); identical(sort(s$Missing[[1]]), sort(missing)) })
-    }
+    .find_similar_datasets <- function(ref, missing) { base::names(rv$staging_datasets) |> purrr::keep(function(n) { if(n==ref) return(FALSE); s <- .get_mapping_status(rv$staging_datasets[[n]], wizard_keys_dynamic()); base::identical(base::sort(s$Missing[[1]]), base::sort(missing)) }) }
     
-    observeEvent(input$rollback_mappings_btn, {
-      if (length(rv$mapping_history) > 0) {
-        rv$staging_datasets <- rv$mapping_history[[length(rv$mapping_history)]]; rv$mapping_history[[length(rv$mapping_history)]] <- NULL; rv$mapping_trigger <- rv$mapping_trigger + 1
-      }
-    })
+    shiny::observeEvent(input$rollback_mappings_btn, { if (base::length(rv$mapping_history) > 0) { last_idx <- base::length(rv$mapping_history); rv$staging_datasets <- rv$mapping_history[[last_idx]]; rv$mapping_history[[last_idx]] <- NULL; rv$mapping_trigger <- rv$mapping_trigger + 1 } })
     
-    observe({
-      req(mapping_summary())
-      has_blocker_missing <- any(sapply(mapping_summary()$Missing, function(m) any(m %in% blocker_keys_dynamic())))
+    shiny::observe({
+      shiny::req(mapping_summary())
+      has_blocker_missing <- base::any(base::sapply(mapping_summary()$Missing, function(m) base::any(m %in% blocker_keys_dynamic())))
       if (!has_blocker_missing) shinyjs::enable("commit_all_mappings_btn") else shinyjs::disable("commit_all_mappings_btn")
     })
     
-    observeEvent(input$commit_all_mappings_btn, {
-      req(rv$fm_matrices)
-      all_warnings <- list()
-      for (ds_name in names(rv$staging_datasets)) {
-        ds <- rv$staging_datasets[[ds_name]]
-        if (exists("check_resolution_capabilities")) {
-          w <- check_resolution_capabilities(ds, rv$config, rv$fm_matrices)
-          if (length(w) > 0) all_warnings[[ds_name]] <- w
-        }
-      }
-      
-      if (length(all_warnings) > 0) {
+    shiny::observeEvent(input$commit_all_mappings_btn, {
+      shiny::req(rv$fm_matrices)
+      all_warnings <- base::list()
+      for (ds_name in base::names(rv$staging_datasets)) { ds <- rv$staging_datasets[[ds_name]]; if (base::exists("check_resolution_capabilities")) { w <- check_resolution_capabilities(ds, rv$config, rv$fm_matrices); if (base::length(w) > 0) all_warnings[[ds_name]] <- w } }
+      if (base::length(all_warnings) > 0) {
         rv$resolution_warnings <- all_warnings
-        warning_ui <- lapply(names(all_warnings), function(n) { tagList(h5(strong(paste("Dataset:", n))), tags$ul(lapply(all_warnings[[n]], tags$li))) })
-        showModal(modalDialog(
-          title = div(icon("exclamation-triangle", class = "text-warning"), "Resolution Capabilities Warning"),
-          div(class = "alert alert-warning", "Some datasets are missing pigments found in your Fm matrix. The following groups will default to 0:"),
-          div(style = "max-height: 300px; overflow-y: auto;", warning_ui),
-          footer = tagList(modalButton("Go Back"), actionButton(ns("force_commit_btn"), "Acknowledge & Proceed", class = "btn-warning"))
-        ))
-      } else {
-        rv$resolution_warnings <- list() 
-        .finalize_commit()
-      }
+        warning_ui <- base::lapply(base::names(all_warnings), function(n) { shiny::tagList(shiny::h5(shiny::strong(base::paste("Dataset:", n))), shiny::tags$ul(base::lapply(all_warnings[[n]], shiny::tags$li))) })
+        shiny::showModal(shiny::modalDialog(title = shiny::div(shiny::icon("exclamation-triangle", class = "text-warning"), "Resolution Capabilities Warning"), shiny::div(class = "alert alert-warning", "Some datasets are missing pigments found in your Fm matrix. The following groups will default to 0:"), shiny::div(style = "max-height: 300px; overflow-y: auto;", warning_ui), footer = shiny::tagList(shiny::modalButton("Go Back"), shiny::actionButton(ns("force_commit_btn"), "Acknowledge & Proceed", class = "btn-warning"))))
+      } else { rv$resolution_warnings <- base::list(); .finalize_commit() }
     })
     
-    observeEvent(input$force_commit_btn, { removeModal(); .finalize_commit() })
+    shiny::observeEvent(input$force_commit_btn, { shiny::removeModal(); .finalize_commit() })
     
     .finalize_commit <- function() {
-      rv$datasets_processed <- rv$staging_datasets
+      mapped_staging <- base::list()
+      for (ds_name in base::names(rv$staging_datasets)) {
+        ds <- rv$staging_datasets[[ds_name]]; working_df <- ds$data; rename_map <- ds$rename_map
+        if (!base::is.null(rename_map) && base::length(rename_map) > 0) { for (target_col in base::names(rename_map)) { raw_col <- rename_map[[target_col]]; if (raw_col != "" && raw_col %in% base::names(working_df)) { base::names(working_df)[base::names(working_df) == raw_col] <- target_col } } }
+        ds$data <- working_df; mapped_staging[[ds_name]] <- ds
+      }
+      rv$staging_datasets <- mapped_staging; rv$datasets_processed <- rv$staging_datasets
       rv$config <- update_config_with_new_aliases(rv$config, rv$datasets_processed)
-      showNotification("Mappings committed! Proceed to Step 4.", type = "message", duration = 8)
+      shiny::showNotification("Mappings saved! Proceed to Step 4.", type = "message", duration = 8)
       .update_workflow_state("step4")
+      shiny::updateTabsetPanel(session = session_parent, inputId = "main_navbar", selected = "step4")
     }
   })
 }

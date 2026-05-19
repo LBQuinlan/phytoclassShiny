@@ -87,9 +87,12 @@ phytoclass:
   step_size: 0.009
 
 performance:
-  # Used to calculate the ETA progress bar. 
-  # This value (seconds per sample) updates dynamically after every successful run.
+  # Used to calculate the smart ETA progress bar. 
+  # These values update dynamically after every successful run
+  # to track how fast your specific computer processes a specific complexity.
   avg_speed: 0.5
+  last_niter: 500
+  last_step_size: 0.009
 
 reporting:
   generate_master_summary: true
@@ -138,3 +141,4 @@ reporting:
       Pro: "#0070C0"              # Darker Blue (Prochlorococcus)
       Prochlorococcus: "#0070C0"
       Cyanobacteria: "#00B0F0"
+      

@@ -1,258 +1,80 @@
-# ============================================================================
-#
-#   _phytoclass_Shiny V1.0 - STEP 4: QC SUMMARY
-#
-#   Description:
-#   The visual interface for Quality Control. It runs the checks and displays
-#   a summary table showing exactly how many samples passed or failed your
-#   cleaning rules.
-#
-# ============================================================================
-
-# --- UI Function ---
 qcUI <- function(id) {
-  ns <- NS(id)
-  
-  tagList(
-    h3("Step 4: QC & Filtering"),
-    p("Apply cleaning rules and environmental filters. This process merges all your files into one standardized dataset."),
-    hr(),
-    
-    fluidRow(
-      column(10, offset = 1,
-             wellPanel(
-               h4("1. Execute Pipeline"),
-               div(style = "text-align: center;",
-                   actionButton(ns("run_qc_and_aggregate_btn"), "Run QC Pipeline", 
-                                class = "btn-primary btn-lg", icon = icon("cogs"))
-               )
-             ),
-             
-             wellPanel(
-               h4("2. QC Audit Summary"),
-               p("Summary of samples passing/failing based on the rules defined in Step 1."),
-               DTOutput(ns("qc_summary_table"))
-             )
+  ns <- shiny::NS(id)
+  shiny::tagList(
+    shiny::h3("Step 4: Clean Data"),
+    shiny::p("This step automatically removes bad data based on the rules you set in Step 1.", class="text-muted"),
+    shiny::hr(),
+    bslib::card(shiny::h4(shiny::icon("cogs"), " 1. Run Cleaner"), shiny::actionButton(ns("run_qc_btn"), "Clean My Data", icon = shiny::icon("shield-alt"), class = "btn-primary w-100 fw-bold")),
+    shinyjs::hidden(
+      shiny::div(id = ns("qc_results_container"),
+                 bslib::card(shiny::h4(shiny::icon("chart-bar"), " Data Kept vs. Data Dropped"), shiny::fluidRow(shiny::column(3, shiny::wellPanel(class="text-center", shiny::h5("Total Input"), shiny::h3(shiny::textOutput(ns("tot_in"))))), shiny::column(1, shiny::div(style="font-size: 2em; color: #ced4da; text-align: center; margin-top: 15px;", shiny::icon("chevron-right"))), shiny::column(3, shiny::wellPanel(class="text-center", style="background-color: #fff3cd;", shiny::h5("Removed"), shiny::h3(shiny::textOutput(ns("tot_rem")), style="color: #856404;"))), shiny::column(1, shiny::div(style="font-size: 2em; color: #ced4da; text-align: center; margin-top: 15px;", shiny::icon("chevron-right"))), shiny::column(4, shiny::wellPanel(class="text-center", style="background-color: #d1e7dd;", shiny::h5("Total Passed"), shiny::h3(shiny::textOutput(ns("tot_pass")), style="color: #0f5132;"))))),
+                 bslib::card(shiny::h4(shiny::icon("table"), " 2. File Breakdown"), shiny::p("See how many samples were removed from each file.", class="text-muted small"), DT::DTOutput(ns("dataset_breakdown_table")))
       )
     )
   )
 }
 
-# --- Server Function ---
 qcServer <- function(id, rv, .log_event, .update_workflow_state, reset_downstream_data) {
-  moduleServer(id, function(input, output, session) {
-    
+  shiny::moduleServer(id, function(input, output, session) {
     ns <- session$ns
-    
-    observeEvent(input$run_qc_and_aggregate_btn, {
-      req(rv$config, length(rv$datasets_processed) > 0)
+    shiny::observeEvent(input$run_qc_btn, {
+      shiny::req(base::length(rv$staging_datasets) > 0)
+      .log_event("QC", "Commencing strict Quality Control triage pipeline.")
+      reset_downstream_data("strategy")
+      master_rows <- base::list(); summary_rows <- base::list()
+      meta_anchors <- base::c("UniqueID", "SourceFile", "Lat", "Lon", "Depth", "Date", "Time", "Station", "Cruise")
       
-      show_modal_spinner(text = "Processing and standardizing datasets...")
-      tryCatch({
-        # Run the core logic
-        qc_results <- run_qc_pipeline(rv$datasets_processed, rv$config)
+      for (ds in rv$staging_datasets) {
+        df_clean <- ds$data; initial_n <- base::nrow(df_clean)
+        target_pigments <- base::setdiff(base::names(df_clean), meta_anchors)
+        if (base::length(target_pigments) > 0) df_clean[target_pigments] <- base::lapply(df_clean[target_pigments], function(x) base::suppressWarnings(base::as.numeric(base::as.character(x))))
         
-        # Update global state
-        rv$datasets_processed <- qc_results$datasets_annotated
-        rv$master_qc_data <- qc_results$master_qc_data
+        numeric_cols <- base::sapply(df_clean, base::is.numeric)
+        if (base::isTRUE(rv$config$data_cleaning$handle_pigment_nas$enabled)) df_clean[numeric_cols][base::is.na(df_clean[numeric_cols])] <- 0
+        if (base::isTRUE(rv$config$data_cleaning$enforce_non_negative_pigments$enabled)) df_clean[numeric_cols][df_clean[numeric_cols] < 0] <- 0
         
-        if(!is.null(rv$master_qc_data) && nrow(rv$master_qc_data) > 0) {
-          .log_event(paste("Success: QC complete.", nrow(rv$master_qc_data), "samples standardized and passed."))
-          reset_downstream_data("strategy")
-          .update_workflow_state("step5")
-          updateNavbarPage(session, "main_navbar", selected = "step5")
-        } else {
-          .log_event("Warning: No samples passed QC filters.")
-          showNotification("No samples passed. Check your Latitude/Longitude or Depth bounds in Step 1.", 
-                           type = "warning", duration = 10)
+        fail_pigment <- 0
+        if (base::isTRUE(rv$config$data_cleaning$handle_zero_pigment_sum$enabled)) {
+          pigment_sums <- base::rowSums(df_clean[target_pigments], na.rm = TRUE); valid_rows <- pigment_sums > 0
+          fail_pigment <- base::sum(!valid_rows, na.rm = TRUE); df_clean <- df_clean[valid_rows, , drop = FALSE]
         }
         
-        rv$qc_summary_df <- .generate_qc_summary_df(rv$datasets_processed)
+        fail_dup <- 0
+        if (base::isTRUE(rv$config$data_cleaning$handle_duplicates$enabled) && base::nrow(df_clean) > 0) {
+          is_dup <- base::duplicated(df_clean); fail_dup <- base::sum(is_dup); df_clean <- df_clean[!is_dup, , drop = FALSE]
+        }
         
-      }, error = function(e){ 
-        # Robust Error Logging: If message is empty, try to print the object
-        msg <- if(nzchar(e$message)) e$message else "Unknown Error (Check R Console)"
-        .log_event(paste("FATAL QC ERROR:", msg))
-        print(e) # Print full error to console for debugging
-        showModal(modalDialog(title = "QC Pipeline Failure", msg))
-      }, finally = { 
-        remove_modal_spinner() 
-      })
+        fail_env <- 0
+        if (base::nrow(df_clean) > 0) {
+          env_pass_mask <- base::rep(TRUE, base::nrow(df_clean))
+          if (base::isTRUE(rv$config$filtering$geospatial$enabled) && base::all(base::c("Lat", "Lon") %in% base::names(df_clean))) { lat_mask <- df_clean$Lat >= rv$config$filtering$geospatial$min_latitude & df_clean$Lat <= rv$config$filtering$geospatial$max_latitude; lon_mask <- df_clean$Lon >= rv$config$filtering$geospatial$min_longitude & df_clean$Lon <= rv$config$filtering$geospatial$max_longitude; lat_mask[base::is.na(lat_mask)] <- FALSE; lon_mask[base::is.na(lon_mask)] <- FALSE; env_pass_mask <- env_pass_mask & lat_mask & lon_mask }
+          if (base::isTRUE(rv$config$filtering$temporal$enabled) && "Date" %in% base::names(df_clean)) { parsed_dates <- base::as.Date(df_clean$Date); date_mask <- parsed_dates >= base::as.Date(rv$config$filtering$temporal$start_date) & parsed_dates <= base::as.Date(rv$config$filtering$temporal$end_date); date_mask[base::is.na(date_mask)] <- FALSE; env_pass_mask <- env_pass_mask & date_mask }
+          if (base::isTRUE(rv$config$filtering$depth$enabled) && "Depth" %in% base::names(df_clean)) { depth_mask <- df_clean$Depth >= rv$config$filtering$depth$min_depth & df_clean$Depth <= rv$config$filtering$depth$max_depth; depth_mask[base::is.na(depth_mask)] <- FALSE; env_pass_mask <- env_pass_mask & depth_mask }
+          fail_env <- base::sum(!env_pass_mask); df_clean <- df_clean[env_pass_mask, , drop = FALSE]
+        }
+        
+        passed_n <- base::nrow(df_clean)
+        yield_pct <- if(initial_n > 0) base::round((passed_n / initial_n) * 100, 1) else 0
+        summary_rows[[base::length(summary_rows) + 1]] <- tibble::tibble(`DATASET` = ds$name, `INPUT (N)` = initial_n, `FAIL: PIGMENT` = fail_pigment, `FAIL: DUPLICATE` = fail_dup, `FAIL: ENV. FILTER` = fail_env, `PASSED (N)` = passed_n, `YIELD (%)` = yield_pct)
+        if (passed_n > 0) master_rows[[base::length(master_rows) + 1]] <- df_clean
+      }
+      
+      rv$qc_summary_df <- dplyr::bind_rows(summary_rows)
+      if (base::length(master_rows) > 0) { rv$master_qc_data <- dplyr::bind_rows(master_rows); .log_event("QC", base::sprintf("Success. %d samples passed.", base::nrow(rv$master_qc_data))) } else { rv$master_qc_data <- base::data.frame(); .log_event("WARNING", "Zero samples passed the QC pipeline criteria.") }
+      shinyjs::show("qc_results_container")
+      .update_workflow_state("step5")
     })
     
-    output$qc_summary_table <- renderDT({
-      req(rv$qc_summary_df)
-      datatable(rv$qc_summary_df, rownames = FALSE, options = list(dom = 't', ordering = FALSE)) %>%
-        formatStyle('Failed', color = styleInterval(0, c('black', '#dc3545')), 
-                    fontWeight = styleInterval(0, c('normal', 'bold'))) %>%
-        formatStyle('Passed', color = '#28a745')
+    output$tot_in <- shiny::renderText({ shiny::req(rv$qc_summary_df); base::sum(rv$qc_summary_df$`INPUT (N)`) })
+    output$tot_rem <- shiny::renderText({ shiny::req(rv$qc_summary_df); base::sum(rv$qc_summary_df$`INPUT (N)`) - base::sum(rv$qc_summary_df$`PASSED (N)`) })
+    output$tot_pass <- shiny::renderText({ shiny::req(rv$qc_summary_df); base::sum(rv$qc_summary_df$`PASSED (N)`) })
+    
+    output$dataset_breakdown_table <- DT::renderDT({
+      shiny::req(rv$qc_summary_df); summary_df <- rv$qc_summary_df
+      if (!base::isTRUE(rv$config$data_cleaning$handle_duplicates$enabled)) summary_df$`FAIL: DUPLICATE` <- NULL
+      if (!base::isTRUE(rv$config$data_cleaning$handle_pigment_nas$enabled) && !base::isTRUE(rv$config$data_cleaning$enforce_non_negative_pigments$enabled) && !base::isTRUE(rv$config$data_cleaning$handle_zero_pigment_sum$enabled)) summary_df$`FAIL: PIGMENT` <- NULL
+      if (!base::isTRUE(rv$config$filtering$geospatial$enabled) && !base::isTRUE(rv$config$filtering$temporal$enabled) && !base::isTRUE(rv$config$filtering$depth$enabled)) { if("FAIL: ENV. FILTER" %in% base::names(summary_df)) summary_df$`FAIL: ENV. FILTER` <- NULL }
+      DT::datatable(summary_df, rownames = FALSE, options = base::list(scrollX = TRUE, pageLength = 10, dom = 't')) |> DT::formatStyle('YIELD (%)', backgroundColor = DT::styleInterval(c(50, 80), c('#f8d7da', '#fff3cd', '#d1e7dd')))
     })
   })
-}
-
-#' Execute the QC and Filtering Pipeline
-run_qc_pipeline <- function(datasets_processed, config) {
-  
-  datasets_annotated <- list()
-  master_list <- list()
-  
-  cleaning_cfg <- config$data_cleaning
-  filter_cfg <- config$filtering
-  
-  for (ds_name in names(datasets_processed)) {
-    ds_obj <- datasets_processed[[ds_name]]
-    data <- ds_obj$data
-    rename_map <- ds_obj$rename_map
-    
-    # --- 0a. COLUMN STANDARDIZATION ---
-    pigment_keys <- setdiff(names(config$column_aliases), config$general$metadata_keys)
-    keys_to_standardize <- c(pigment_keys, "latitude", "longitude", "depth", "date", "time", "year", "month", "day", "Tchla")
-    
-    for (key in keys_to_standardize) {
-      if (key %in% names(rename_map)) {
-        actual_col <- rename_map[[key]]
-        
-        # 1. Check if rename is needed (actual exists, is different from key)
-        if (!is.null(actual_col) && actual_col %in% colnames(data) && actual_col != key) {
-          
-          # SAFETY CHECK: If target 'key' already exists, we skip to avoid collision
-          # (This happens if 'year' was generated by loader, but map still points to 'Year')
-          if (key %in% colnames(data)) {
-            rename_map[[key]] <- key # Just update map
-            next
-          }
-          
-          # Try Rename
-          tryCatch({
-            data <- dplyr::rename(data, !!key := !!sym(actual_col))
-            rename_map[[key]] <- key # Update map immediately
-          }, error = function(e) {
-            warning(paste("Failed to rename column", actual_col, "to", key, ":", e$message), call.=FALSE)
-          })
-          
-        } else if (key %in% colnames(data)) {
-          # Already standardized
-          rename_map[[key]] <- key
-        }
-      }
-    }
-    
-    # Save the updated map back
-    ds_obj$rename_map <- rename_map
-    
-    # --- 0b. FORCE NUMERIC ---
-    cols_to_convert <- intersect(unlist(rename_map), colnames(data))
-    if(length(cols_to_convert) > 0) {
-      data <- data %>% mutate(across(all_of(cols_to_convert), safe_as_numeric))
-    }
-    
-    # Identify pigment columns for cleaning
-    meta_keys <- config$general$metadata_keys
-    pigment_keys <- setdiff(names(config$column_aliases), meta_keys)
-    mapped_pigment_cols <- intersect(pigment_keys, colnames(data)) 
-    
-    # --- 1. Data Cleaning ---
-    data$cleaning_status <- "Keep"
-    data$duplicate_status <- "Keep_Unique"
-    
-    if (length(mapped_pigment_cols) > 0) {
-      
-      # A. Handle NAs
-      if (isTRUE(cleaning_cfg$handle_pigment_nas$enabled)) {
-        data <- data %>% mutate(across(all_of(mapped_pigment_cols), ~ {
-          vals <- . ; vals[is.na(vals)] <- 0; vals
-        }))
-      }
-      
-      # B. Handle Negatives
-      if (isTRUE(cleaning_cfg$enforce_non_negative_pigments$enabled)) {
-        data <- data %>% mutate(across(all_of(mapped_pigment_cols), ~ {
-          vals <- . ; vals[vals < 0] <- 0; vals
-        }))
-      }
-      
-      # C. Handle Zero-Sum
-      if (isTRUE(cleaning_cfg$handle_zero_pigment_sum$enabled)) {
-        pigment_matrix <- as.matrix(data[, mapped_pigment_cols, drop = FALSE])
-        row_sums <- rowSums(pigment_matrix, na.rm = TRUE)
-        data$cleaning_status[row_sums <= 1e-9] <- "Flagged_ZeroSum"
-      }
-    }
-    
-    # --- 2. Environmental Filtering ---
-    data$filter_status_geo <- "Keep"
-    data$filter_status_temporal <- "Keep"
-    data$filter_status_depth <- "Keep"
-    
-    if (isTRUE(filter_cfg$geospatial$enabled)) {
-      if ("latitude" %in% colnames(data) && "longitude" %in% colnames(data)) {
-        lat <- data$latitude
-        lon <- data$longitude
-        min_lat <- min(filter_cfg$geospatial$min_latitude, filter_cfg$geospatial$max_latitude)
-        max_lat <- max(filter_cfg$geospatial$min_latitude, filter_cfg$geospatial$max_latitude)
-        min_lon <- min(filter_cfg$geospatial$min_longitude, filter_cfg$geospatial$max_longitude)
-        max_lon <- max(filter_cfg$geospatial$min_longitude, filter_cfg$geospatial$max_longitude)
-        
-        bad_geo <- is.na(lat) | is.na(lon) | lat < min_lat | lat > max_lat | lon < min_lon | lon > max_lon
-        data$filter_status_geo[bad_geo] <- "Flagged_GeoRange"
-      }
-    }
-    
-    if (isTRUE(filter_cfg$temporal$enabled)) {
-      if (all(c("year", "month", "day") %in% colnames(data))) {
-        dates <- as.Date(ISOdate(data$year, data$month, data$day))
-        d1 <- as.Date(filter_cfg$temporal$start_date)
-        d2 <- as.Date(filter_cfg$temporal$end_date)
-        bad_time <- is.na(dates) | dates < min(d1, d2) | dates > max(d1, d2)
-        data$filter_status_temporal[bad_time] <- "Flagged_DateRange"
-      }
-    }
-    
-    if (isTRUE(filter_cfg$depth$enabled) && "depth" %in% colnames(data)) {
-      depth_val <- data$depth
-      d_min <- min(filter_cfg$depth$min_depth, filter_cfg$depth$max_depth)
-      d_max <- max(filter_cfg$depth$min_depth, filter_cfg$depth$max_depth)
-      data$filter_status_depth[is.na(depth_val) | depth_val < d_min | depth_val > d_max] <- "Flagged_DepthRange"
-    }
-    
-    # --- 3. Final Pass ---
-    data$qc_pass <- (data$cleaning_status == "Keep" & data$duplicate_status == "Keep_Unique" &
-                       data$filter_status_geo == "Keep" & data$filter_status_temporal == "Keep" &
-                       data$filter_status_depth == "Keep")
-    
-    ds_obj$data_annotated <- data
-    datasets_annotated[[ds_name]] <- ds_obj
-    
-    passed_rows <- data %>% filter(qc_pass)
-    
-    if (nrow(passed_rows) > 0) {
-      cols_to_keep <- c("UniqueID", "source_dataset", "year", "month", "day", names(rename_map))
-      cols_to_keep <- intersect(cols_to_keep, colnames(passed_rows))
-      std_data <- passed_rows %>% dplyr::select(all_of(cols_to_keep))
-      master_list[[ds_name]] <- std_data
-    }
-  }
-  
-  master_qc_data <- if (length(master_list) > 0) dplyr::bind_rows(master_list) else NULL
-  return(list(datasets_annotated = datasets_annotated, master_qc_data = master_qc_data))
-}
-
-.generate_qc_summary_df <- function(datasets_processed) {
-  if(length(datasets_processed) == 0) return(tibble())
-  all_ann <- dplyr::bind_rows(lapply(datasets_processed, `[[`, "data_annotated"))
-  total <- sum(purrr::map_int(datasets_processed, ~nrow(.x$data_original)))
-  
-  summary_df <- tibble(
-    Category = c("Start", "Pigment QC", "Pigment QC", "Pigment QC", "Filtering", "Filtering", "Filtering", "Finish"),
-    Rule = c("Total Loaded", "NAs/Negatives", "Zero Sums", "Duplicates", "Geospatial", "Temporal", "Depth", "Total Passed"),
-    Failed = c(0, sum(all_ann$cleaning_status == "Flagged_NA"), sum(all_ann$cleaning_status == "Flagged_ZeroSum"),
-               sum(all_ann$duplicate_status == "Flagged_Duplicate"), sum(all_ann$filter_status_geo != "Keep"),
-               sum(all_ann$filter_status_temporal != "Keep"), sum(all_ann$filter_status_depth != "Keep"), 0)
-  )
-  
-  # Final Count
-  pass_count <- sum(all_ann$qc_pass)
-  summary_df$Failed[8] <- total - pass_count
-  summary_df$Passed <- total - summary_df$Failed
-  return(summary_df)
 }

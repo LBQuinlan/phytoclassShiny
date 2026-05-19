@@ -1,362 +1,310 @@
 # ============================================================================
-#
-#   _phytoclass_Shiny V1.0 - STEP 7: RESULTS & REPORTING
-#
-#   Description:
-#   The final dashboard. Creates graphs, compiles the Master Excel Report,
-#   and archives the Session Config for perfect reproducibility.
-#
+# MODULE: Step 7 - Results & Reporting
+# Description: The final dashboard. Hardened against OS-level file locks
+# and reactive memory leaks.
 # ============================================================================
 
-# --- UI Function ---
 reportingUI <- function(id) {
-  ns <- NS(id)
+  ns <- shiny::NS(id)
   
-  tagList(
-    h3("Step 7: Results & Export"),
-    p("Interactively explore the results for each analysis group, then generate a complete report package."),
-    hr(),
+  shiny::tagList(
+    shiny::h3("Step 7: Results & Download"),
+    shiny::p(class="section-desc", "View your final graphs, check the math scores, and download your results."),
+    shiny::hr(),
     
-    fluidRow(
-      column(4,
-             wellPanel(
-               h4("1. Explore Results"),
-               selectInput(ns("dataset_to_explore"), "Select Analysis Group to View:", choices = NULL),
-               hr(),
-               h5(strong("Performance Diagnostics")),
-               verbatimTextOutput(ns("performance_metrics_display"))
-             ),
-             wellPanel(
-               h4("2. Export"),
-               p("Create a timestamped folder containing clean Result files, the Master Audit Report, and a reusable Config file."),
-               actionButton(ns("generate_report_package_btn"), "Download Report Package", class = "btn-primary btn-lg", width = "100%", icon = icon("download")),
-               hr(),
-               uiOutput(ns("report_package_status_ui"))
-             )
+    shiny::fluidRow(
+      shiny::column(4,
+                    shiny::wellPanel(
+                      shiny::h4(shiny::icon("search"), " 1. View Graphs"),
+                      shiny::selectInput(ns("dataset_to_explore"), "Select Group:", choices = NULL),
+                      shiny::hr(),
+                      shiny::div(class="text-uppercase tracking-wider fw-bold text-secondary small mb-2", "Math Scores"),
+                      shiny::verbatimTextOutput(ns("performance_metrics_display"))
+                    ),
+                    shiny::wellPanel(
+                      shiny::h4(shiny::icon("archive"), " 2. Download Results"),
+                      shiny::p(style="font-size:0.88em; color:#555;", "Save all your clean data, calculated abundances, and graphs into a new folder on your computer."),
+                      shiny::actionButton(ns("generate_report_package_btn"), "Save Results to Computer", class = "btn-success btn-lg w-100 fw-bold", icon = shiny::icon("download")),
+                      
+                      shiny::uiOutput(ns("open_folder_ui"))
+                    )
       ),
-      column(8,
-             wellPanel(
-               h4("Visualizations"),
-               tabsetPanel(
-                 tabPanel("Community Composition (100% Area Plot)",
-                          br(),
-                          plotOutput(ns("community_area_plot"), height = "500px")
-                 ),
-                 tabPanel("Sample-by-Sample (Biomass Bar Plot)",
-                          br(),
-                          plotOutput(ns("sample_bar_plot"), height = "500px")
-                 )
-               )
-             )
+      shiny::column(8,
+                    shiny::wellPanel(
+                      shiny::h4(shiny::icon("chart-bar"), " Phytoplankton Community Graphs"),
+                      shiny::tabsetPanel(
+                        shiny::tabPanel("Relative Abundance (Percentage)",
+                                        shiny::br(),
+                                        shiny::plotOutput(ns("community_area_plot"), height = "500px")
+                        ),
+                        shiny::tabPanel("Absolute Abundance (Concentration)",
+                                        shiny::br(),
+                                        shiny::plotOutput(ns("sample_bar_plot"), height = "500px")
+                        )
+                      )
+                    )
       )
     )
   )
 }
 
-# --- Server Function ---
 reportingServer <- function(id, rv, .log_event) {
-  moduleServer(id, function(input, output, session) {
-    
+  shiny::moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
-    observe({
-      req(rv$analyzed_datasets)
-      ds_with_results <- purrr::keep(rv$analyzed_datasets, ~!is.null(.x$data_final))
-      updateSelectInput(session, "dataset_to_explore", choices = names(ds_with_results))
+    local_rv <- shiny::reactiveValues(saved_package_path = NULL)
+    
+    shiny::observe({
+      shiny::req(rv$analyzed_datasets)
+      ds_with_results <- purrr::keep(rv$analyzed_datasets, ~!base::is.null(.x$data_final))
+      shiny::updateSelectInput(session, "dataset_to_explore", choices = base::names(ds_with_results))
     })
     
-    selected_dataset <- reactive({
-      req(input$dataset_to_explore, rv$analyzed_datasets)
+    selected_dataset <- shiny::reactive({
+      shiny::req(input$dataset_to_explore, rv$analyzed_datasets)
       rv$analyzed_datasets[[input$dataset_to_explore]]
     })
     
-    output$performance_metrics_display <- renderText({
-      req(selected_dataset())
-      
+    output$performance_metrics_display <- shiny::renderText({
+      shiny::req(selected_dataset())
       log <- selected_dataset()$log_analyzer
       ds_name <- selected_dataset()$name
       
-      phyto_metrics <- paste(
-        "--- Phytoclass Performance ---",
-        paste("Status:", log$status %||% "N/A"),
-        paste("Fm Matrix Used:", log$fm_matrix_used %||% "N/A"),
-        paste("Mean RMSE:", round(log$mean_rmse %||% NA, 4)),
-        paste("Mean Condition Num:", round(log$mean_condnum %||% NA, 2)),
+      phyto_metrics <- base::paste(
+        "--- RUN FIT METRICS ---",
+        base::paste("Convergence State :", log$status %||% "N/A"),
+        base::paste("Selected Baseline :", log$fm_matrix_used %||% "N/A"),
+        base::paste("Residual Error    :", base::round(log$mean_rmse %||% NA, 4)),
+        base::paste("Condition Matrix  :", base::round(log$mean_condnum %||% NA, 2)),
         sep = "\n"
       )
       
       cluster_metrics <- ""
-      if (!is.null(rv$cluster_diagnostics) && startsWith(ds_name, "Cluster_")) {
+      if (!base::is.null(rv$cluster_diagnostics) && base::startsWith(ds_name, "Cluster_")) {
         sample_count <- log$rows_input_to_phyto %||% "N/A"
-        
-        cluster_metrics <- paste(
-          "\n--- Clustering Diagnostics ---",
-          paste("Samples in Cluster:", sample_count),
-          paste("Optimal k (Elbow):", rv$cluster_diagnostics$info$optimal_k %||% "N/A"),
-          paste("Used k:", rv$cluster_diagnostics$info$used_k %||% "N/A"),
+        cluster_metrics <- base::paste(
+          "\n--- SEGMENT PROPERTY LOG ---",
+          base::paste("Segment Density   :", sample_count),
+          base::paste("Elbow Optimum (k) :", rv$cluster_diagnostics$info$optimal_k %||% "N/A"),
+          base::paste("Target Groups (k) :", rv$cluster_diagnostics$info$used_k %||% "N/A"),
           sep = "\n"
         )
       }
-      
-      paste(phyto_metrics, cluster_metrics, sep = "\n")
+      base::paste(phyto_metrics, cluster_metrics, sep = "\n")
     })
     
-    # --- Helper: Name Cleaner ---
+    shiny::observeEvent(input$open_local_directory_btn, {
+      shiny::req(local_rv$saved_package_path)
+      path <- base::normalizePath(local_rv$saved_package_path, mustWork = FALSE)
+      
+      if (!base::dir.exists(path)) {
+        shiny::showNotification("Target directory reference could not be localized on current mount.", type = "error")
+        return()
+      }
+      
+      tryCatch({
+        if (.Platform$OS.type == "windows") {
+          utils::browseURL(path) 
+        } else if (Sys.info()["sysname"] == "Darwin") {
+          base::system2("open", args = base::shQuote(path)) 
+        } else {
+          base::system2("xdg-open", args = base::shQuote(path)) 
+        }
+        .log_event("SYSTEM", base::paste("Dispatched OS Explorer to path channel:", path))
+      }, error = function(e) {
+        shiny::showNotification(base::paste("OS Explorer intercept failed:", e$message), type = "warning")
+      })
+    })
+    
+    output$open_folder_ui <- shiny::renderUI({
+      shiny::req(local_rv$saved_package_path)
+      shiny::div(class = "mt-3 p-3 border rounded text-center animate-fade-in", 
+                 style = "background-color: #f1f8f5; border-color: #a3cfbb !important;",
+                 shiny::p(style = "color: #146c43; font-size: 0.88em; margin-bottom: 12px; font-weight:500;", 
+                          shiny::icon("check-circle"), " Results Successfully Saved!"),
+                 shiny::actionButton(ns("open_local_directory_btn"), "Open Results Folder", 
+                                     class = "btn-outline-success btn-sm w-100 font-monospace", icon = shiny::icon("folder-open"))
+      )
+    })
+    
     .clean_names <- function(x) {
-      x <- gsub("^Phyto_", "", x)
-      x <- gsub("_Abund$", "", x)
-      x <- gsub("Phyto_RMSE", "RMSE", x)
-      x <- gsub("Phyto_CondNum", "Condition_Number", x)
+      x <- base::gsub("^Phyto_", "", x)
+      x <- base::gsub("_Abund$", "", x)
+      x <- base::gsub("Phyto_RMSE", "RMSE", x)
+      x <- base::gsub("Phyto_CondNum", "Condition_Number", x)
       return(x)
     }
     
-    # --- Helper: Palette Builder ---
     .get_palette <- function(data_classes) {
       config_palette <- rv$config$reporting$plotting$custom_palette
-      if (is.null(config_palette)) return(NULL) 
-      
-      user_colors <- unlist(config_palette)
-      final_palette <- c()
-      
+      if (base::is.null(config_palette)) return(NULL) 
+      user_colors <- base::unlist(config_palette)
+      final_palette <- base::c()
       for (cls in data_classes) {
-        if (cls %in% names(user_colors)) {
+        if (cls %in% base::names(user_colors)) {
           final_palette[cls] <- user_colors[[cls]]
         } else {
-          hyphenated <- gsub("\\.", "-", cls) 
-          if (hyphenated %in% names(user_colors)) {
+          hyphenated <- base::gsub("\\.", "-", cls) 
+          if (hyphenated %in% base::names(user_colors)) {
             final_palette[cls] <- user_colors[[hyphenated]]
-          } else {
-            final_palette[cls] <- NA 
-          }
+          } else { final_palette[cls] <- NA }
         }
       }
-      
-      missing_entries <- names(final_palette)[is.na(final_palette)]
-      if (length(missing_entries) > 0) {
-        default_colors <- scales::hue_pal()(length(missing_entries))
-        for(i in seq_along(missing_entries)) {
-          final_palette[missing_entries[i]] <- default_colors[i]
-        }
+      missing_entries <- base::names(final_palette)[base::is.na(final_palette)]
+      if (base::length(missing_entries) > 0) {
+        default_colors <- scales::hue_pal()(base::length(missing_entries))
+        for(i in base::seq_along(missing_entries)) { final_palette[missing_entries[i]] <- default_colors[i] }
       }
-      
       return(final_palette)
     }
     
-    # --- Plotting Helpers ---
     .plot_area <- function(data) {
-      long_df <- data %>% 
-        dplyr::select(UniqueID, starts_with("Phyto_")) %>%
-        dplyr::select(-ends_with("RMSE"), -ends_with("CondNum")) %>%
-        pivot_longer(cols = -UniqueID, names_to = "Class", values_to = "Abundance") %>%
-        mutate(Class = .clean_names(Class))
+      long_df <- data |> 
+        dplyr::select(UniqueID, tidyselect::starts_with("Phyto_")) |>
+        dplyr::select(-tidyselect::ends_with("RMSE"), -tidyselect::ends_with("CondNum")) |>
+        tidyr::pivot_longer(cols = -UniqueID, names_to = "Class", values_to = "Abundance") |>
+        dplyr::mutate(Class = .clean_names(Class))
       
-      unique_classes <- unique(long_df$Class)
+      unique_classes <- base::unique(long_df$Class)
       custom_pal <- .get_palette(unique_classes)
       
-      p <- ggplot(long_df, aes(x = UniqueID, y = Abundance, fill = Class, group = Class)) +
-        geom_area(alpha = 0.8, position = "fill") + 
-        scale_y_continuous(labels = scales::percent) +
-        theme_minimal() +
-        theme(axis.text.x = element_blank()) +
-        labs(title = "Community Composition (Relative Abundance)", y = "Contribution to Total Chl a")
+      p <- ggplot2::ggplot(long_df, ggplot2::aes(x = UniqueID, y = Abundance, fill = Class, group = Class)) +
+        ggplot2::geom_area(alpha = 0.85, position = "fill") + 
+        ggplot2::scale_y_continuous(labels = scales::percent) +
+        ggplot2::theme_minimal() +
+        ggplot2::theme(axis.text.x = ggplot2::element_blank(), panel.grid.minor = ggplot2::element_blank()) +
+        ggplot2::labs(title = "Community Composition Matrix Profile", y = "Relative Yield Allocation (TChla)")
       
-      if (!is.null(custom_pal)) {
-        p <- p + scale_fill_manual(values = custom_pal)
-      }
+      if (!base::is.null(custom_pal)) p <- p + ggplot2::scale_fill_manual(values = custom_pal)
       return(p)
     }
     
     .plot_bar <- function(data) {
-      long_df <- data %>% 
-        dplyr::select(UniqueID, starts_with("Phyto_")) %>%
-        dplyr::select(-ends_with("RMSE"), -ends_with("CondNum")) %>%
-        pivot_longer(cols = -UniqueID, names_to = "Class", values_to = "Abundance") %>%
-        mutate(Class = .clean_names(Class))
+      long_df <- data |> 
+        dplyr::select(UniqueID, tidyselect::starts_with("Phyto_")) |>
+        dplyr::select(-tidyselect::ends_with("RMSE"), -tidyselect::ends_with("CondNum")) |>
+        tidyr::pivot_longer(cols = -UniqueID, names_to = "Class", values_to = "Abundance") |>
+        dplyr::mutate(Class = .clean_names(Class))
       
-      unique_classes <- unique(long_df$Class)
+      unique_classes <- base::unique(long_df$Class)
       custom_pal <- .get_palette(unique_classes)
       
-      p <- ggplot(long_df, aes(x = UniqueID, y = Abundance, fill = Class)) +
-        geom_bar(stat = "identity", position = "stack") +
-        theme_minimal() +
-        theme(axis.text.x = element_blank()) +
-        labs(title = "Sample Biomass (Absolute)", y = "Concentration (ug/L)")
+      p <- ggplot2::ggplot(long_df, ggplot2::aes(x = UniqueID, y = Abundance, fill = Class)) +
+        ggplot2::geom_bar(stat = "identity", position = "stack", width=1) +
+        ggplot2::theme_minimal() +
+        ggplot2::theme(axis.text.x = ggplot2::element_blank(), panel.grid.minor = ggplot2::element_blank()) +
+        ggplot2::labs(title = "Absolute Community Biomass Projections", y = "Concentration Density (ug/L)")
       
-      if (!is.null(custom_pal)) {
-        p <- p + scale_fill_manual(values = custom_pal)
-      }
+      if (!base::is.null(custom_pal)) p <- p + ggplot2::scale_fill_manual(values = custom_pal)
       return(p)
     }
     
-    output$community_area_plot <- renderPlot({
-      req(selected_dataset()$data_final)
-      .plot_area(selected_dataset()$data_final)
+    output$community_area_plot <- shiny::renderPlot({ 
+      shiny::req(selected_dataset()$data_final)
+      .plot_area(selected_dataset()$data_final) 
+    })
+    output$sample_bar_plot <- shiny::renderPlot({ 
+      shiny::req(selected_dataset()$data_final)
+      .plot_bar(selected_dataset()$data_final) 
     })
     
-    output$sample_bar_plot <- renderPlot({
-      req(selected_dataset()$data_final)
-      .plot_bar(selected_dataset()$data_final)
-    })
-    
-    # --- REPORT GENERATION ---
-    observeEvent(input$generate_report_package_btn, {
-      if (length(rv$analyzed_datasets) == 0) {
-        showNotification("Please run the analysis in Step 6 first.", type="error")
-        return()
+    shiny::observeEvent(input$generate_report_package_btn, {
+      if (base::length(rv$analyzed_datasets) == 0) { 
+        shiny::showNotification("Run the optimization phase prior to packaging.", type="error")
+        return() 
       }
       
-      base_output_dir <- rv$config$workspace$output_directory %||% "outputs"
+      shinyjs::disable("generate_report_package_btn")
+      shinybusy::show_modal_spinner(text = "Saving Results...")
       
-      # Clean "Session" naming convention
-      timestamp <- format(Sys.time(), "%Y-%m-%d_%H%M")
-      session_output_dir <- file.path(base_output_dir, paste0("Session_", timestamp))
-      plots_output_dir <- file.path(session_output_dir, "Plots")
-      
-      if (!dir.exists(session_output_dir)) dir.create(session_output_dir, recursive = TRUE)
-      if (!dir.exists(plots_output_dir)) dir.create(plots_output_dir)
-      
-      show_modal_spinner(text = "Generating reports and plots...")
+      base_output_dir <- rv$config$workspace$output_directory %||% "phytoclass_output"
+      timestamp <- base::format(base::Sys.time(), "%Y-%m-%d_%H%M")
+      session_output_dir <- base::file.path(base_output_dir, base::paste0("Session_", timestamp))
+      plots_output_dir <- base::file.path(session_output_dir, "Plots")
       
       tryCatch({
-        wb_master <- createWorkbook()
+        if (!base::dir.exists(session_output_dir)) base::dir.create(session_output_dir, recursive = TRUE)
+        if (!base::dir.exists(plots_output_dir)) base::dir.create(plots_output_dir)
         
-        # 1. Session Info
-        addWorksheet(wb_master, "Session Info")
+        wb_master <- openxlsx::createWorkbook()
+        openxlsx::addWorksheet(wb_master, "Session Info")
         
-        cluster_k_auto <- if(!is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$optimal_k else "N/A"
-        cluster_k_used <- if(!is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$used_k else "N/A"
+        cluster_k_auto <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$optimal_k else "N/A"
+        cluster_k_used <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$used_k else "N/A"
+        method_raw <- rv$config$strategy$method %||% "hclust"
+        dist_metric <- if(method_raw == "By Pigment Cluster") "Euclidean" else "N/A"
+        run_time <- if(!base::is.null(rv$performance_metrics)) paste(rv$performance_metrics$total_time_sec, "s") else "N/A"
         
-        method_raw <- rv$config$clustering$cluster_method %||% "hclust"
-        dist_metric <- if(method_raw == "hclust") "Euclidean" else "N/A (K-Means)"
-        linkage <- if(method_raw == "hclust") "Ward.D2" else "N/A"
-        
-        run_time <- if(!is.null(rv$performance_metrics)) paste(rv$performance_metrics$total_time_sec, "s") else "N/A"
-        speed <- if(!is.null(rv$performance_metrics)) paste(rv$performance_metrics$time_per_sample, "s") else "N/A"
-        
-        session_info <- data.frame(
-          Parameter = c(
-            "Session ID", "Date", 
-            "Optimization Iterations (Niter)", "Cooling Step", 
-            "Clustering Method", "Distance Metric", "Linkage Method",
-            "Optimal K (Elbow)", "Final K Used",
-            "Total Runtime", "Avg Speed (sec/sample)",
-            "QC Duplicates", "Geo Filter", "Temp Filter"
-          ),
-          Value = c(
-            rv$session_id, as.character(Sys.Date()), 
-            rv$config$phytoclass$niter, rv$config$phytoclass$step_size,
-            method_raw, dist_metric, linkage,
-            as.character(cluster_k_auto), as.character(cluster_k_used),
-            run_time, speed,
-            rv$config$data_cleaning$handle_duplicates$enabled,
-            rv$config$filtering$geospatial$enabled,
-            rv$config$filtering$temporal$enabled
-          )
+        session_info <- base::data.frame(
+          Parameter = c("Session ID", "Date", "Niter Cycles", "Cooling Decay Rate", "Grouping Paradigm", "Distance Framework", "Optimum K Target", "Realized K Grouping"),
+          Value = c(rv$session_id, base::as.character(base::Sys.Date()), rv$config$phytoclass$niter, rv$config$phytoclass$step_size, method_raw, dist_metric, base::as.character(cluster_k_auto), base::as.character(cluster_k_used))
         )
-        writeData(wb_master, "Session Info", session_info)
+        openxlsx::writeData(wb_master, "Session Info", session_info)
         
-        # 2. QC Stats
-        if (!is.null(rv$qc_summary_df)) {
-          addWorksheet(wb_master, "QC Statistics")
-          writeData(wb_master, "QC Statistics", rv$qc_summary_df)
+        if (!base::is.null(rv$qc_summary_df)) { 
+          openxlsx::addWorksheet(wb_master, "QC Statistics")
+          openxlsx::writeData(wb_master, "QC Statistics", rv$qc_summary_df) 
         }
         
-        # 3. Resolution Warnings
-        if (length(rv$resolution_warnings) > 0) {
-          warn_df <- stack(rv$resolution_warnings)
-          colnames(warn_df) <- c("Issue_Detected", "Dataset_Name")
-          warn_df <- warn_df %>%  dplyr::select(Dataset_Name, Issue_Detected)
-          addWorksheet(wb_master, "Resolution Warnings")
-          writeData(wb_master, "Resolution Warnings", warn_df)
-        }
+        log_df <- base::data.frame(Timestamped_Log = rv$session_log)
+        openxlsx::addWorksheet(wb_master, "Session Log")
+        openxlsx::writeData(wb_master, "Session Log", log_df)
         
-        # 4. Session Log
-        log_df <- data.frame(Timestamped_Log = rv$session_log)
-        addWorksheet(wb_master, "Session Log")
-        writeData(wb_master, "Session Log", log_df)
-        
-        # 5. Full Audit Trail
-        audit_list <- list()
-        if (length(rv$datasets_processed) > 0) {
-          for (n in names(rv$datasets_processed)) {
-            d_ann <- rv$datasets_processed[[n]]$data_annotated
-            if (!is.null(d_ann)) audit_list[[n]] <- d_ann
-          }
-          if (length(audit_list) > 0) {
-            master_audit_df <- dplyr::bind_rows(audit_list)
-            addWorksheet(wb_master, "Triage Log (All Samples)")
-            writeData(wb_master, "Triage Log (All Samples)", master_audit_df)
-          }
-        }
-        
-        # 6. Unified Results
-        unified_results <- list()
-        for(ds_name in names(rv$analyzed_datasets)) {
+        unified_results <- base::list()
+        for(ds_name in base::names(rv$analyzed_datasets)) {
           ds <- rv$analyzed_datasets[[ds_name]]
-          if(!is.null(ds$data_final)) {
-            clean <- ds$data_final %>%
-              dplyr::select(-any_of(c("cleaning_status", "duplicate_status", "qc_pass",
-                                      "filter_status_geo", "filter_status_temporal", 
-                                      "filter_status_depth", "original_row_num", "year", "month", "day")))
-            colnames(clean) <- .clean_names(colnames(clean))
+          if(!base::is.null(ds$data_final)) {
+            clean <- ds$data_final |>
+              dplyr::select(-dplyr::any_of(c("cleaning_status", "duplicate_status", "qc_pass", "filter_status_geo", "filter_status_temporal", "filter_status_depth", "original_row_num", "year", "month", "day")))
+            base::colnames(clean) <- .clean_names(base::colnames(clean))
             clean$Analysis_Group <- ds_name
-            if("UniqueID" %in% names(clean)) {
-              clean <- clean %>% dplyr::select(UniqueID, Analysis_Group, everything())
-            }
+            if("UniqueID" %in% base::names(clean)) clean <- clean |> dplyr::select(UniqueID, Analysis_Group, dplyr::everything())
             unified_results[[ds_name]] <- clean
           }
         }
         
-        if(length(unified_results) > 0) {
-          global_df <- bind_rows(unified_results)
-          addWorksheet(wb_master, "All Samples Combined")
-          writeData(wb_master, "All Samples Combined", global_df)
+        if(base::length(unified_results) > 0) {
+          global_df <- dplyr::bind_rows(unified_results)
+          openxlsx::addWorksheet(wb_master, "All Samples Combined")
+          openxlsx::writeData(wb_master, "All Samples Combined", global_df)
         }
         
-        saveWorkbook(wb_master, file = file.path(session_output_dir, "PhytoClass_Master_Report.xlsx"), overwrite = TRUE)
+        openxlsx::saveWorkbook(wb_master, file = base::file.path(session_output_dir, "PhytoClass_Master_Report.xlsx"), overwrite = TRUE)
+        if (base::exists("save_config") && base::is.function(save_config)) save_config(rv$config, base::file.path(session_output_dir, "config_session.yaml"))
         
-        # 7. Plots, Config & Individual Files
-        
-        # --- ARCHIVE CONFIG FOR REPRODUCIBILITY ---
-        # Save as "config_session.yaml" so it can be drag-and-dropped back to root
-        save_config(rv$config, file.path(session_output_dir, "config_session.yaml"))
-        
-        if (!is.null(rv$cluster_diagnostics) && !is.null(rv$cluster_diagnostics$elbow_plot)) {
-          ggsave(filename = file.path(plots_output_dir, "Elbow_Plot_Optimization.png"), 
-                 plot = rv$cluster_diagnostics$elbow_plot, width = 8, height = 6, dpi = 300)
+        if (!base::is.null(rv$cluster_diagnostics) && !base::is.null(rv$cluster_diagnostics$elbow_plot)) {
+          ggplot2::ggsave(filename = base::file.path(plots_output_dir, "Elbow_Plot_Optimization.png"), plot = rv$cluster_diagnostics$elbow_plot, width = 8, height = 6, dpi = 300)
         }
         
-        for(ds_name in names(rv$analyzed_datasets)) {
+        for(ds_name in base::names(rv$analyzed_datasets)) {
           ds <- rv$analyzed_datasets[[ds_name]]
-          if(!is.null(ds$data_final)) {
-            clean_output <- ds$data_final %>%
-              dplyr::select(-any_of(c("cleaning_status", "duplicate_status", "qc_pass",
-                                      "filter_status_geo", "filter_status_temporal", "filter_status_depth",
-                                      "original_row_num", "year", "month", "day")))
-            colnames(clean_output) <- .clean_names(colnames(clean_output))
-            if("UniqueID" %in% names(clean_output)) clean_output <- clean_output %>% dplyr::select(UniqueID, everything())
+          if(!base::is.null(ds$data_final)) {
+            clean_output <- ds$data_final |>
+              dplyr::select(-dplyr::any_of(c("cleaning_status", "duplicate_status", "qc_pass", "filter_status_geo", "filter_status_temporal", "filter_status_depth", "original_row_num", "year", "month", "day")))
+            base::colnames(clean_output) <- .clean_names(base::colnames(clean_output))
+            if("UniqueID" %in% base::names(clean_output)) clean_output <- clean_output |> dplyr::select(UniqueID, dplyr::everything())
             
-            write.xlsx(clean_output, file = file.path(session_output_dir, paste0("Result_", ds_name, ".xlsx")))
-            
-            p_area <- .plot_area(ds$data_final)
-            ggsave(filename = file.path(plots_output_dir, paste0("AreaPlot_", ds_name, ".png")), 
-                   plot = p_area, width = 10, height = 6, dpi = 300)
-            
-            p_bar <- .plot_bar(ds$data_final)
-            ggsave(filename = file.path(plots_output_dir, paste0("BarPlot_", ds_name, ".png")), 
-                   plot = p_bar, width = 10, height = 6, dpi = 300)
+            openxlsx::write.xlsx(clean_output, file = base::file.path(session_output_dir, base::paste0("Result_", ds_name, ".xlsx")))
+            ggplot2::ggsave(filename = base::file.path(plots_output_dir, base::paste0("AreaPlot_", ds_name, ".png")), plot = .plot_area(ds$data_final), width = 10, height = 6, dpi = 300)
+            ggplot2::ggsave(filename = base::file.path(plots_output_dir, base::paste0("BarPlot_", ds_name, ".png")), plot = .plot_bar(ds$data_final), width = 10, height = 6, dpi = 300)
           }
         }
         
-        .log_event("Success: Final report package generated.")
-        output$report_package_status_ui <- renderUI({ 
-          p(style = "color:#28a745;", "✅ Data + Plots saved to:", br(), code(session_output_dir)) 
-        })
+        .log_event("SUCCESS", base::paste("Final report parcel output configured at standard handle mount:", session_output_dir))
+        local_rv$saved_package_path <- session_output_dir
+        shiny::showNotification("Export Complete! Directory generated successfully.", type = "message")
+        
       }, error = function(e) {
-        .log_event(paste("ERROR during report generation:", e$message))
-        output$report_package_status_ui <- renderUI({ p(style = "color:#dc3545;", "❌ FAILED:", br(), e$message) })
-      }, finally = { remove_modal_spinner() })
+        if (base::grepl("Permission denied", e$message) || base::grepl("cannot open file", e$message)) {
+          shiny::showModal(shiny::modalDialog(title = "File System Locked", "Permission denied. If you have a previous export file currently open in Excel, please close it and try again.", type = "error"))
+        } else {
+          shiny::showNotification(base::paste("Export Failed:", e$message), type = "error", duration = 10)
+        }
+        .log_event("EXPORT FAULT", base::paste("Export failed:", e$message))
+      }, finally = { 
+        shinybusy::remove_modal_spinner() 
+        shinyjs::enable("generate_report_package_btn")
+      })
     })
-    
   })
 }
