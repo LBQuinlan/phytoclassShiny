@@ -446,28 +446,28 @@ server <- function(input, output, session) {
     shinyjs::html("trk_group_eta", acc_text); shinyjs::runjs(base::sprintf("$('#trk_group_eta').css('color', '%s');", acc_color))
     
     # --- LEARNING ENGINE: CUMULATIVE ROLLING AVERAGE INTERCEPT ---
-    local_config <- rv$config
-    total_historical_runs <- base::as.numeric(local_config$performance$total_historical_runs %||% 0)
-    current_run_coefficient <- total_duration_sec / (total_samples_global * complexity_scale)
-    
-    if (total_historical_runs == 0) {
-      new_rolling_coefficient <- current_run_coefficient
-    } else {
-      new_rolling_coefficient <- ((historical_coef * total_historical_runs) + current_run_coefficient) / (total_historical_runs + 1)
-    }
-    
-    local_config$performance$total_historical_runs <- total_historical_runs + 1
-    local_config$performance$system_calibration_coefficient <- new_rolling_coefficient
-    local_config$performance$avg_speed <- final_avg_speed
-    local_config$performance$last_niter <- curr_niter
-    local_config$performance$last_step_size <- curr_step
-    
-    rv$config <- local_config
-    if (base::exists("save_config") && base::is.function(save_config)) { 
-      base::tryCatch({ 
-        save_config(rv$config, CONFIG_SESSION_PATH) 
-        .log_event("CALIBRATION", base::sprintf("System learned from run #%d. Adjusted baseline factor: %.6g", total_historical_runs + 1, new_rolling_coefficient))
-      }, error = function(e) {}) 
+    # Only update calibration if at least one dataset processed successfully to prevent instant-fail skewing.
+    if (base::any(base::vapply(temp_analyzed_list, function(x) !base::is.null(x$data_final), base::logical(1)))) {
+      local_config <- rv$config
+      total_historical_runs <- base::as.numeric(local_config$performance$total_historical_runs %||% 0)
+      current_run_coefficient <- total_duration_sec / (total_samples_global * complexity_scale)
+      
+      if (total_historical_runs == 0) { new_rolling_coefficient <- current_run_coefficient
+      } else { new_rolling_coefficient <- ((historical_coef * total_historical_runs) + current_run_coefficient) / (total_historical_runs + 1) }
+      
+      local_config$performance$total_historical_runs <- total_historical_runs + 1
+      local_config$performance$system_calibration_coefficient <- new_rolling_coefficient
+      local_config$performance$avg_speed <- final_avg_speed
+      local_config$performance$last_niter <- curr_niter
+      local_config$performance$last_step_size <- curr_step
+      
+      rv$config <- local_config
+      if (base::exists("save_config") && base::is.function(save_config)) { 
+        base::tryCatch({ 
+          save_config(rv$config, CONFIG_SESSION_PATH) 
+          .log_event("CALIBRATION", base::sprintf("System learned from run #%d. Adjusted baseline factor: %.6g", total_historical_runs + 1, new_rolling_coefficient))
+        }, error = function(e) {}) 
+      }
     }
     
     .update_workflow_state("step7")

@@ -21,6 +21,41 @@ validationServer <- function(id, rv, .log_event, .update_workflow_state, session
   shiny::moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
+    # --- 1. CORE COMMIT FUNCTION SCOPED AT THE TOP ---
+    .finalize_commit <- function() {
+      mapped_staging <- base::list()
+      for (ds_name in base::names(rv$staging_datasets)) {
+        ds <- rv$staging_datasets[[ds_name]]; working_df <- ds$data; rename_map <- ds$rename_map
+        if (!base::is.null(rename_map) && base::length(rename_map) > 0) { 
+          for (target_col in base::names(rename_map)) { 
+            raw_col <- rename_map[[target_col]]; 
+            if (raw_col != "" && raw_col %in% base::names(working_df)) { 
+              base::names(working_df)[base::names(working_df) == raw_col] <- target_col 
+            } 
+          } 
+        }
+        ds$data <- working_df; mapped_staging[[ds_name]] <- ds
+      }
+      rv$staging_datasets <- mapped_staging; rv$datasets_processed <- rv$staging_datasets
+      
+      # Update active memory configuration
+      rv$config <- update_config_with_new_aliases(rv$config, rv$datasets_processed)
+      
+      # Hard Drive Sync: Lock custom aliases into the YAML immediately
+      if (base::exists("save_config") && base::is.function(save_config)) {
+        base::tryCatch({
+          target_path <- if (base::exists("CONFIG_SESSION_PATH")) CONFIG_SESSION_PATH else "config_session.yaml"
+          save_config(rv$config, target_path)
+          .log_event("CONFIG", "Alias mapping successfully written to local session config.")
+        }, error = function(e) { .log_event("WARNING", base::paste("Failed to save alias config:", e$message)) })
+      }
+      
+      shiny::showNotification("Mappings saved! Proceed to Step 4.", type = "message", duration = 8)
+      .update_workflow_state("step4")
+      shiny::updateTabsetPanel(session = session_parent, inputId = "main_navbar", selected = "step4")
+    }
+    
+    # --- 2. DYNAMIC WIZARD LOGIC ---
     wizard_keys_dynamic <- shiny::reactive({
       shiny::req(rv$config)
       keys <- base::c(rv$config$general$essential_pigments, "Tchla")
@@ -122,31 +157,42 @@ validationServer <- function(id, rv, .log_event, .update_workflow_state, session
       if (!has_blocker_missing) shinyjs::enable("commit_all_mappings_btn") else shinyjs::disable("commit_all_mappings_btn")
     })
     
+    # --- 3. EXPLICIT ERROR INTERCEPT ---
     shiny::observeEvent(input$commit_all_mappings_btn, {
-      shiny::req(rv$fm_matrices)
+      
+      # LOUD CHECK: Did the matrices fail to load?
+      if (base::is.null(rv$fm_matrices) || base::is.null(rv$fm_matrices$Fm_Pro)) {
+        shiny::showModal(shiny::modalDialog(
+          title = shiny::div(shiny::icon("times-circle", class="text-danger"), " Matrix Files Missing"),
+          "Your Fm reference matrices are missing from memory! Please go back to Step 1, verify the file paths, and click 'Check Matrix Files'.",
+          type = "error"
+        ))
+        return()
+      }
+      
       all_warnings <- base::list()
-      for (ds_name in base::names(rv$staging_datasets)) { ds <- rv$staging_datasets[[ds_name]]; if (base::exists("check_resolution_capabilities")) { w <- check_resolution_capabilities(ds, rv$config, rv$fm_matrices); if (base::length(w) > 0) all_warnings[[ds_name]] <- w } }
+      for (ds_name in base::names(rv$staging_datasets)) { 
+        ds <- rv$staging_datasets[[ds_name]]
+        if (base::exists("check_resolution_capabilities", mode="function")) { 
+          w <- check_resolution_capabilities(ds, rv$config, rv$fm_matrices)
+          if (base::length(w) > 0) all_warnings[[ds_name]] <- w 
+        } 
+      }
+      
       if (base::length(all_warnings) > 0) {
         rv$resolution_warnings <- all_warnings
         warning_ui <- base::lapply(base::names(all_warnings), function(n) { shiny::tagList(shiny::h5(shiny::strong(base::paste("Dataset:", n))), shiny::tags$ul(base::lapply(all_warnings[[n]], shiny::tags$li))) })
         shiny::showModal(shiny::modalDialog(title = shiny::div(shiny::icon("exclamation-triangle", class = "text-warning"), "Resolution Capabilities Warning"), shiny::div(class = "alert alert-warning", "Some datasets are missing pigments found in your Fm matrix. The following groups will default to 0:"), shiny::div(style = "max-height: 300px; overflow-y: auto;", warning_ui), footer = shiny::tagList(shiny::modalButton("Go Back"), shiny::actionButton(ns("force_commit_btn"), "Acknowledge & Proceed", class = "btn-warning"))))
-      } else { rv$resolution_warnings <- base::list(); .finalize_commit() }
+      } else { 
+        rv$resolution_warnings <- base::list()
+        .finalize_commit() 
+      }
     })
     
-    shiny::observeEvent(input$force_commit_btn, { shiny::removeModal(); .finalize_commit() })
+    shiny::observeEvent(input$force_commit_btn, { 
+      shiny::removeModal()
+      .finalize_commit() 
+    })
     
-    .finalize_commit <- function() {
-      mapped_staging <- base::list()
-      for (ds_name in base::names(rv$staging_datasets)) {
-        ds <- rv$staging_datasets[[ds_name]]; working_df <- ds$data; rename_map <- ds$rename_map
-        if (!base::is.null(rename_map) && base::length(rename_map) > 0) { for (target_col in base::names(rename_map)) { raw_col <- rename_map[[target_col]]; if (raw_col != "" && raw_col %in% base::names(working_df)) { base::names(working_df)[base::names(working_df) == raw_col] <- target_col } } }
-        ds$data <- working_df; mapped_staging[[ds_name]] <- ds
-      }
-      rv$staging_datasets <- mapped_staging; rv$datasets_processed <- rv$staging_datasets
-      rv$config <- update_config_with_new_aliases(rv$config, rv$datasets_processed)
-      shiny::showNotification("Mappings saved! Proceed to Step 4.", type = "message", duration = 8)
-      .update_workflow_state("step4")
-      shiny::updateTabsetPanel(session = session_parent, inputId = "main_navbar", selected = "step4")
-    }
   })
 }

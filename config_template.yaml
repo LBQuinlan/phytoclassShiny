@@ -66,20 +66,18 @@ data_cleaning:
   handle_zero_pigment_sum: {enabled: true}
   enforce_non_negative_pigments: {enabled: true}
 
+strategy:
+  method: 'By Source File'
+
 clustering:
   # Parameters for the advanced clustering workflow (Step 5).
-  # --- Pre-processing Pipeline ---
-  imputation_method: 'none'         # Options: 'none', 'max', 'min'
-  normalization_method: 'tchla'     # Options: 'none', 'tchla'
-  transformation_method: 'log1p'    # Options: 'none', 'log1p'
-
-  # --- Algorithm Settings ---
-  cluster_method: 'hclust'          # Options: 'hclust', 'kmeans'
-  # Distance is locked to 'euclidean' in the app logic for stability with Log data
-  distance_method: 'euclidean'      
-  
-  # --- Algorithm Parameters ---
-  k_max: 5                          # Max clusters to test or specific k to use
+  imputation_method: 'none'         
+  normalization_method: 'Ratio to Tchla'     
+  transformation_method: 'Box-Cox'    
+  cluster_method: 'Ward''s + DynamicTreeCut'          
+  distance_method: 'Manhattan'      
+  k_determination: 'Auto'           
+  k_max: 5                          
 
 phytoclass:
   # Default parameters for the core phytoclass algorithm (Step 6).
@@ -88,57 +86,54 @@ phytoclass:
 
 performance:
   # Used to calculate the smart ETA progress bar. 
-  # These values update dynamically after every successful run
-  # to track how fast your specific computer processes a specific complexity.
   avg_speed: 0.5
   last_niter: 500
   last_step_size: 0.009
+  total_historical_runs: 0
+  system_calibration_coefficient: 0.000009
 
 reporting:
   generate_master_summary: true
   
   # --- Visualization Settings ---
-  # IMPORTANT: The keys below must match the row names in your Fm_Pro/Fm_NoPro
-  # Excel files exactly. R often converts hyphens to dots, so we include both.
   plotting:
     custom_palette:
       # --- Red Group (Diatoms) ---
-      Diatoms-1: "#CC0000"        # Dark Red
-      Diatoms-2: "#FF0000"        # Bright Red
-      Diatoms.1: "#CC0000"        # Catch for R 'make.names'
-      Diatoms.2: "#FF0000"        # Catch for R 'make.names'
-      Diatoms: "#FF0000"          # Catch for generic
+      Diatoms-1: "#CC0000"
+      Diatoms-2: "#FF0000"
+      Diatoms.1: "#CC0000"
+      Diatoms.2: "#FF0000"
+      Diatoms: "#FF0000"
       
       # --- Orange Group (Dinoflagellates) ---
-      Dinoflagellates-1: "#ED7D31" # Orange
-      Dinoflagellates-2: "#F4B084" # Light Orange
-      Dinoflagellates.1: "#ED7D31" 
+      Dinoflagellates-1: "#ED7D31"
+      Dinoflagellates-2: "#F4B084"
+      Dinoflagellates.1: "#ED7D31"
       Dinoflagellates: "#ED7D31"
       
       # --- Brown Group (Cryptophytes) ---
-      Cryptophytes: "#B45F04"     # Rust/Brown
+      Cryptophytes: "#B45F04"
       
       # --- Yellow Group (Pelagophytes/Chrysophytes) ---
-      Pelagophytes: "#FFC000"     # Gold/Yellow
-      Chrysophytes: "#FFD700"     # Gold
+      Pelagophytes: "#FFC000"
+      Chrysophytes: "#FFD700"
       
       # --- Purple/Pink Group (Haptophytes) ---
-      Haptophytes: "#7030A0"      # Deep Purple
-      Haptophytes-6: "#9933FF"    # Light Purple
-      Haptophytes-8: "#7030A0"    # Deep Purple
+      Haptophytes: "#7030A0"
+      Haptophytes-6: "#9933FF"
+      Haptophytes-8: "#7030A0"
       Haptophytes.6: "#9933FF"
       Haptophytes.8: "#7030A0"
       Prymnesiophytes: "#7030A0"
       
       # --- Green Group (Green Algae) ---
-      Prasinophytes: "#70AD47"    # Light/Grass Green
-      Chlorophytes: "#006400"     # Dark/Forest Green
-      Euglenophytes: "#339933"    # Medium Green
+      Prasinophytes: "#70AD47"
+      Chlorophytes: "#006400"
+      Euglenophytes: "#339933"
       
       # --- Cyan/Blue Group (Cyanobacteria) ---
-      Syn: "#00B0F0"              # Cyan (Synechococcus)
+      Syn: "#00B0F0"
       Synechococcus: "#00B0F0"
-      Pro: "#0070C0"              # Darker Blue (Prochlorococcus)
+      Pro: "#0070C0"
       Prochlorococcus: "#0070C0"
       Cyanobacteria: "#00B0F0"
-      

@@ -125,16 +125,19 @@ sync_config_with_ui <- function(config, input, ns_prefix = "") {
     if (!base::is.null(grp_method)) config$strategy$method <- grp_method
     
     norm_method <- .safe_grab("normalization_method_input")
-    if (!base::is.null(norm_method)) config$clustering$normalization_method <- if(norm_method == "Ratio to Tchla") "tchla" else "none"
+    if (!base::is.null(norm_method)) config$clustering$normalization_method <- norm_method
     
     trans_method <- .safe_grab("transformation_method_input")
-    if (!base::is.null(trans_method)) config$clustering$transformation_method <- if(trans_method == "Log(x+1)") "log" else "none"
+    if (!base::is.null(trans_method)) config$clustering$transformation_method <- trans_method
+    
+    dist_method <- .safe_grab("distance_method_input")
+    if (!base::is.null(dist_method)) config$clustering$distance_method <- dist_method
     
     clust_method <- .safe_grab("cluster_method_input")
-    if (!base::is.null(clust_method)) config$clustering$cluster_method <- if(clust_method == "Hierarchical (Ward)") "hclust" else "kmeans"
+    if (!base::is.null(clust_method)) config$clustering$cluster_method <- clust_method
     
     k_mode <- .safe_grab("k_determination_mode")
-    if (!base::is.null(k_mode)) config$clustering$k_determination <- base::tolower(k_mode)
+    if (!base::is.null(k_mode)) config$clustering$k_determination <- k_mode
     
     k_max <- .safe_grab("k_max_input")
     if (!base::is.null(k_max) && !base::is.na(k_max)) config$clustering$k_max <- k_max
@@ -184,18 +187,10 @@ update_all_ui_from_config <- function(config, session) {
   ns <- function(id) base::paste0("step5_strategy-", id)
   
   shinyWidgets::updateRadioGroupButtons(session, ns("grouping_method_input"), selected = config$strategy$method %||% "By Source File")
-  
-  norm_str <- if((config$clustering$normalization_method %||% "tchla") == "tchla") "Ratio to Tchla" else "Raw Data"
-  shiny::updateSelectInput(session, ns("normalization_method_input"), selected = norm_str)
-  
-  trans_str <- if((config$clustering$transformation_method %||% "log") == "log") "Log(x+1)" else "None"
-  shiny::updateSelectInput(session, ns("transformation_method_input"), selected = trans_str)
-  
-  clust_str <- if((config$clustering$cluster_method %||% "hclust") == "hclust") "Hierarchical (Ward)" else "K-Means"
-  shiny::updateSelectInput(session, ns("cluster_method_input"), selected = clust_str)
-  
-  k_str <- if((config$clustering$k_determination %||% "auto") == "auto") "Auto" else "Manual"
-  shiny::updateRadioButtons(session, ns("k_determination_mode"), selected = k_str)
-  
-  shiny::updateNumericInput(session, ns("k_max_input"), value = config$clustering$k_max %||% 4)
+  shiny::updateSelectInput(session, ns("normalization_method_input"), selected = config$clustering$normalization_method %||% "Ratio to Tchla")
+  shiny::updateSelectInput(session, ns("transformation_method_input"), selected = config$clustering$transformation_method %||% "Box-Cox")
+  shiny::updateSelectInput(session, ns("distance_method_input"), selected = config$clustering$distance_method %||% "Manhattan")
+  shiny::updateSelectInput(session, ns("cluster_method_input"), selected = config$clustering$cluster_method %||% "Ward's + DynamicTreeCut")
+  shiny::updateRadioButtons(session, ns("k_determination_mode"), selected = config$clustering$k_determination %||% "Auto")
+  shiny::updateNumericInput(session, ns("k_max_input"), value = config$clustering$k_max %||% 5)
 }

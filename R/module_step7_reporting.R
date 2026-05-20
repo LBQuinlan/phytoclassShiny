@@ -116,6 +116,14 @@ reportingServer <- function(id, rv, .log_event) {
       })
     })
     
+    .clean_names <- function(x) {
+      x <- base::gsub("Phyto_RMSE", "RMSE", x)
+      x <- base::gsub("Phyto_CondNum", "Condition_Number", x)
+      x <- base::gsub("^Phyto_", "", x)
+      x <- base::gsub("_Abund$", "", x)
+      return(x)
+    }
+    
     output$open_folder_ui <- shiny::renderUI({
       shiny::req(local_rv$saved_package_path)
       shiny::div(class = "mt-3 p-3 border rounded text-center animate-fade-in", 
@@ -126,14 +134,6 @@ reportingServer <- function(id, rv, .log_event) {
                                      class = "btn-outline-success btn-sm w-100 font-monospace", icon = shiny::icon("folder-open"))
       )
     })
-    
-    .clean_names <- function(x) {
-      x <- base::gsub("^Phyto_", "", x)
-      x <- base::gsub("_Abund$", "", x)
-      x <- base::gsub("Phyto_RMSE", "RMSE", x)
-      x <- base::gsub("Phyto_CondNum", "Condition_Number", x)
-      return(x)
-    }
     
     .get_palette <- function(data_classes) {
       config_palette <- rv$config$reporting$plotting$custom_palette
@@ -229,15 +229,32 @@ reportingServer <- function(id, rv, .log_event) {
         wb_master <- openxlsx::createWorkbook()
         openxlsx::addWorksheet(wb_master, "Session Info")
         
+        .safe_char <- function(x) {
+          if (base::is.null(x) || base::length(x) == 0) return("N/A")
+          return(base::as.character(x[1]))
+        }
+        
+        method_raw <- rv$config$strategy$method %||% "hclust"
         cluster_k_auto <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$optimal_k else "N/A"
         cluster_k_used <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$used_k else "N/A"
-        method_raw <- rv$config$strategy$method %||% "hclust"
-        dist_metric <- if(method_raw == "By Pigment Cluster") "Euclidean" else "N/A"
-        run_time <- if(!base::is.null(rv$performance_metrics)) paste(rv$performance_metrics$total_time_sec, "s") else "N/A"
+        cluster_algo <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$algorithm else "N/A"
+        dist_metric <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$distance else "N/A"
+        transform_metric <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$transform else "N/A"
         
         session_info <- base::data.frame(
-          Parameter = c("Session ID", "Date", "Niter Cycles", "Cooling Decay Rate", "Grouping Paradigm", "Distance Framework", "Optimum K Target", "Realized K Grouping"),
-          Value = c(rv$session_id, base::as.character(base::Sys.Date()), rv$config$phytoclass$niter, rv$config$phytoclass$step_size, method_raw, dist_metric, base::as.character(cluster_k_auto), base::as.character(cluster_k_used))
+          Parameter = base::c("Session ID", "Date", "Niter Cycles", "Cooling Decay Rate", "Grouping Paradigm", "Transformation", "Distance Metric", "Cluster Algorithm", "Optimum K Target", "Realized K Grouping"),
+          Value = base::c(
+            .safe_char(rv$session_id),
+            .safe_char(base::Sys.Date()),
+            .safe_char(rv$config$phytoclass$niter),
+            .safe_char(rv$config$phytoclass$step_size),
+            .safe_char(method_raw),
+            .safe_char(transform_metric),
+            .safe_char(dist_metric),
+            .safe_char(cluster_algo),
+            .safe_char(cluster_k_auto),
+            .safe_char(cluster_k_used)
+          )
         )
         openxlsx::writeData(wb_master, "Session Info", session_info)
         
@@ -255,8 +272,10 @@ reportingServer <- function(id, rv, .log_event) {
           ds <- rv$analyzed_datasets[[ds_name]]
           if(!base::is.null(ds$data_final)) {
             clean <- ds$data_final |>
-              dplyr::select(-dplyr::any_of(c("cleaning_status", "duplicate_status", "qc_pass", "filter_status_geo", "filter_status_temporal", "filter_status_depth", "original_row_num", "year", "month", "day")))
-            base::colnames(clean) <- .clean_names(base::colnames(clean))
+              dplyr::select(-dplyr::any_of(base::c("cleaning_status", "duplicate_status", "qc_pass", "filter_status_geo", "filter_status_temporal", "filter_status_depth", "original_row_num", "year", "month", "day")))
+            
+            base::colnames(clean) <- base::make.names(.clean_names(base::colnames(clean)), unique = TRUE)
+            
             clean$Analysis_Group <- ds_name
             if("UniqueID" %in% base::names(clean)) clean <- clean |> dplyr::select(UniqueID, Analysis_Group, dplyr::everything())
             unified_results[[ds_name]] <- clean
@@ -272,16 +291,19 @@ reportingServer <- function(id, rv, .log_event) {
         openxlsx::saveWorkbook(wb_master, file = base::file.path(session_output_dir, "PhytoClass_Master_Report.xlsx"), overwrite = TRUE)
         if (base::exists("save_config") && base::is.function(save_config)) save_config(rv$config, base::file.path(session_output_dir, "config_session.yaml"))
         
-        if (!base::is.null(rv$cluster_diagnostics) && !base::is.null(rv$cluster_diagnostics$elbow_plot)) {
-          ggplot2::ggsave(filename = base::file.path(plots_output_dir, "Elbow_Plot_Optimization.png"), plot = rv$cluster_diagnostics$elbow_plot, width = 8, height = 6, dpi = 300)
+        if (!base::is.null(rv$cluster_diagnostics)) {
+          if (!base::is.null(rv$cluster_diagnostics$pca_plot)) ggplot2::ggsave(filename = base::file.path(plots_output_dir, "PCA_Cluster_Map.png"), plot = rv$cluster_diagnostics$pca_plot, width = 8, height = 6, dpi = 300)
+          if (!base::is.null(rv$cluster_diagnostics$dendro_plot)) ggplot2::ggsave(filename = base::file.path(plots_output_dir, "Hierarchical_Dendrogram.png"), plot = rv$cluster_diagnostics$dendro_plot, width = 10, height = 6, dpi = 300)
+          if (!base::is.null(rv$cluster_diagnostics$elbow_plot)) ggplot2::ggsave(filename = base::file.path(plots_output_dir, "Silhouette_Optimization.png"), plot = rv$cluster_diagnostics$elbow_plot, width = 8, height = 6, dpi = 300)
+          if (!base::is.null(rv$cluster_diagnostics$wss_plot)) ggplot2::ggsave(filename = base::file.path(plots_output_dir, "WSS_Elbow_Plot.png"), plot = rv$cluster_diagnostics$wss_plot, width = 8, height = 6, dpi = 300)
         }
         
         for(ds_name in base::names(rv$analyzed_datasets)) {
           ds <- rv$analyzed_datasets[[ds_name]]
           if(!base::is.null(ds$data_final)) {
             clean_output <- ds$data_final |>
-              dplyr::select(-dplyr::any_of(c("cleaning_status", "duplicate_status", "qc_pass", "filter_status_geo", "filter_status_temporal", "filter_status_depth", "original_row_num", "year", "month", "day")))
-            base::colnames(clean_output) <- .clean_names(base::colnames(clean_output))
+              dplyr::select(-dplyr::any_of(base::c("cleaning_status", "duplicate_status", "qc_pass", "filter_status_geo", "filter_status_temporal", "filter_status_depth", "original_row_num", "year", "month", "day")))
+            base::colnames(clean_output) <- base::make.names(.clean_names(base::colnames(clean_output)), unique = TRUE)
             if("UniqueID" %in% base::names(clean_output)) clean_output <- clean_output |> dplyr::select(UniqueID, dplyr::everything())
             
             openxlsx::write.xlsx(clean_output, file = base::file.path(session_output_dir, base::paste0("Result_", ds_name, ".xlsx")))
@@ -295,12 +317,15 @@ reportingServer <- function(id, rv, .log_event) {
         shiny::showNotification("Export Complete! Directory generated successfully.", type = "message")
         
       }, error = function(e) {
-        if (base::grepl("Permission denied", e$message) || base::grepl("cannot open file", e$message)) {
+        err_msg <- base::conditionMessage(e)
+        if (err_msg == "") err_msg <- "Silent Failure (e.g., OS Folder Lock or C++ memory block)"
+        
+        if (base::grepl("Permission denied", err_msg) || base::grepl("cannot open file", err_msg)) {
           shiny::showModal(shiny::modalDialog(title = "File System Locked", "Permission denied. If you have a previous export file currently open in Excel, please close it and try again.", type = "error"))
         } else {
-          shiny::showNotification(base::paste("Export Failed:", e$message), type = "error", duration = 10)
+          shiny::showNotification(base::paste("Export Failed:", err_msg), type = "error", duration = 15)
         }
-        .log_event("EXPORT FAULT", base::paste("Export failed:", e$message))
+        .log_event("EXPORT FAULT", base::paste("Export failed:", err_msg))
       }, finally = { 
         shinybusy::remove_modal_spinner() 
         shinyjs::enable("generate_report_package_btn")

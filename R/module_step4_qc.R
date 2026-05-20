@@ -17,12 +17,21 @@ qcUI <- function(id) {
 qcServer <- function(id, rv, .log_event, .update_workflow_state, reset_downstream_data) {
   shiny::moduleServer(id, function(input, output, session) {
     ns <- session$ns
+    
+    # --- UI RESET WATCHER ---
+    # Instantly hides the results container if upstream settings wipe the memory buffer
+    shiny::observeEvent(rv$qc_summary_df, {
+      if (base::is.null(rv$qc_summary_df)) {
+        shinyjs::hide("qc_results_container")
+      }
+    }, ignoreNULL = FALSE)
+    
     shiny::observeEvent(input$run_qc_btn, {
       shiny::req(base::length(rv$staging_datasets) > 0)
       .log_event("QC", "Commencing strict Quality Control triage pipeline.")
       reset_downstream_data("strategy")
       master_rows <- base::list(); summary_rows <- base::list()
-      meta_anchors <- base::c("UniqueID", "SourceFile", "Lat", "Lon", "Depth", "Date", "Time", "Station", "Cruise")
+      meta_anchors <- base::c("UniqueID", "SourceFile", "Lat", "Lon", "Depth", "Date", "Time", "Station", "Cruise", "year", "month", "day")
       
       for (ds in rv$staging_datasets) {
         df_clean <- ds$data; initial_n <- base::nrow(df_clean)
@@ -47,9 +56,21 @@ qcServer <- function(id, rv, .log_event, .update_workflow_state, reset_downstrea
         fail_env <- 0
         if (base::nrow(df_clean) > 0) {
           env_pass_mask <- base::rep(TRUE, base::nrow(df_clean))
-          if (base::isTRUE(rv$config$filtering$geospatial$enabled) && base::all(base::c("Lat", "Lon") %in% base::names(df_clean))) { lat_mask <- df_clean$Lat >= rv$config$filtering$geospatial$min_latitude & df_clean$Lat <= rv$config$filtering$geospatial$max_latitude; lon_mask <- df_clean$Lon >= rv$config$filtering$geospatial$min_longitude & df_clean$Lon <= rv$config$filtering$geospatial$max_longitude; lat_mask[base::is.na(lat_mask)] <- FALSE; lon_mask[base::is.na(lon_mask)] <- FALSE; env_pass_mask <- env_pass_mask & lat_mask & lon_mask }
-          if (base::isTRUE(rv$config$filtering$temporal$enabled) && "Date" %in% base::names(df_clean)) { parsed_dates <- base::as.Date(df_clean$Date); date_mask <- parsed_dates >= base::as.Date(rv$config$filtering$temporal$start_date) & parsed_dates <= base::as.Date(rv$config$filtering$temporal$end_date); date_mask[base::is.na(date_mask)] <- FALSE; env_pass_mask <- env_pass_mask & date_mask }
-          if (base::isTRUE(rv$config$filtering$depth$enabled) && "Depth" %in% base::names(df_clean)) { depth_mask <- df_clean$Depth >= rv$config$filtering$depth$min_depth & df_clean$Depth <= rv$config$filtering$depth$max_depth; depth_mask[base::is.na(depth_mask)] <- FALSE; env_pass_mask <- env_pass_mask & depth_mask }
+          if (base::isTRUE(rv$config$filtering$geospatial$enabled) && base::all(base::c("Lat", "Lon") %in% base::names(df_clean))) { 
+            lat_mask <- df_clean$Lat >= rv$config$filtering$geospatial$min_latitude & df_clean$Lat <= rv$config$filtering$geospatial$max_latitude; 
+            lon_mask <- df_clean$Lon >= rv$config$filtering$geospatial$min_longitude & df_clean$Lon <= rv$config$filtering$geospatial$max_longitude; 
+            lat_mask[base::is.na(lat_mask)] <- FALSE; lon_mask[base::is.na(lon_mask)] <- FALSE; env_pass_mask <- env_pass_mask & lat_mask & lon_mask 
+          }
+          if (base::isTRUE(rv$config$filtering$temporal$enabled) && base::all(base::c("year", "month", "day") %in% base::names(df_clean))) { 
+            parsed_dates <- base::as.Date(base::sprintf("%04d-%02d-%02d", df_clean$year, df_clean$month, df_clean$day))
+            date_mask <- parsed_dates >= base::as.Date(rv$config$filtering$temporal$start_date) & parsed_dates <= base::as.Date(rv$config$filtering$temporal$end_date)
+            date_mask[base::is.na(date_mask)] <- FALSE
+            env_pass_mask <- env_pass_mask & date_mask 
+          }
+          if (base::isTRUE(rv$config$filtering$depth$enabled) && "Depth" %in% base::names(df_clean)) { 
+            depth_mask <- df_clean$Depth >= rv$config$filtering$depth$min_depth & df_clean$Depth <= rv$config$filtering$depth$max_depth; 
+            depth_mask[base::is.na(depth_mask)] <- FALSE; env_pass_mask <- env_pass_mask & depth_mask 
+          }
           fail_env <- base::sum(!env_pass_mask); df_clean <- df_clean[env_pass_mask, , drop = FALSE]
         }
         
