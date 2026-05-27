@@ -34,7 +34,12 @@ load_all_files <- function(file_input_df, config, session_log_f) {
 }
 
 .standardize_datetime_columns <- function(data, rename_map) {
-  .clean_ymd <- function(d) { d |> dplyr::mutate(year = safe_as_numeric(year), month = safe_as_numeric(month), day = safe_as_numeric(day)) }
+  .clean_ymd <- function(d) { 
+    if (base::is.character(d$month) || base::is.factor(d$month)) {
+      d$month <- base::match(base::substr(base::tolower(base::as.character(d$month)), 1, 3), base::tolower(month.abb)) %||% d$month
+    }
+    d |> dplyr::mutate(year = safe_as_numeric(year), month = safe_as_numeric(month), day = safe_as_numeric(day)) 
+  }
   if (base::all(base::c("year", "month", "day") %in% base::names(rename_map))) { data <- data |> dplyr::mutate(year = !!rlang::sym(rename_map$year), month = !!rlang::sym(rename_map$month), day = !!rlang::sym(rename_map$day)); return(.clean_ymd(data)) }
   if ("date" %in% base::names(rename_map)) {
     date_col <- rename_map$date; raw_dates <- data[[date_col]]; date_formats <- base::c("Ymd", "ymd", "mdY", "mdy", "dmY", "dmy", "Ymd HMS", "ymd HMS"); parsed <- lubridate::parse_date_time(raw_dates, orders = date_formats, quiet = TRUE)
@@ -48,11 +53,11 @@ load_all_files <- function(file_input_df, config, session_log_f) {
 run_phytoclass_analysis <- function(data_for_phyto, config, fm_matrices, rename_map = NULL) {
   dataset_name <- "UnknownDataset"
   if ("UniqueID" %in% base::colnames(data_for_phyto) && base::nrow(data_for_phyto) > 0) { dataset_name <- data_for_phyto$SourceFile[1] %||% data_for_phyto$ClusterID[1] %||% base::gsub("_Row_.*$", "", data_for_phyto$UniqueID[1]) }
-  log <- base::list(status = "Not Started", rows_input_to_phyto = base::nrow(data_for_phyto), fm_matrix_used = NA_character_, niter_value = NA_integer_, mean_rmse = NA, mean_condnum = NA, mean_smape = NA, r_squared = NA, error_details = NULL)
+  log <- base::list(status = "Not Started", rows_input_to_phyto = base::nrow(data_for_phyto), fm_matrix_used = NA_character_, seed_used = NA_character_, niter_value = NA_integer_, mean_rmse = NA, mean_condnum = NA, mean_smape = NA, r_squared = NA, error_details = NULL)
   
   if (!base::requireNamespace("phytoclass", quietly = TRUE)) base::stop("FATAL: Package 'phytoclass' is required.")
-  if (log$rows_input_to_phyto == 0) { log$status <- "Skipped (No rows)"; return(base::list(results = NULL, log = log, pigment_matrix_used = NULL)) }
-  if (base::is.null(fm_matrices) || base::is.null(fm_matrices$Fm_Pro)) { log$status <- "Skipped (No Fm matrix)"; return(base::list(results = NULL, log = log, pigment_matrix_used = NULL)) }
+  if (log$rows_input_to_phyto == 0) { log$status <- "Skipped (No rows)"; return(base::list(results = NULL, log = log, pigment_matrix_used = NULL, f_matrix_final = NULL, phytoclass_raw = NULL)) }
+  if (base::is.null(fm_matrices) || base::is.null(fm_matrices$Fm_Pro)) { log$status <- "Skipped (No Fm matrix)"; return(base::list(results = NULL, log = log, pigment_matrix_used = NULL, f_matrix_final = NULL, phytoclass_raw = NULL)) }
   
   sm_matrix <- NULL
   tryCatch({
@@ -64,19 +69,58 @@ run_phytoclass_analysis <- function(data_for_phyto, config, fm_matrices, rename_
     Fm_to_use <- if (use_pro) fm_matrices$Fm_Pro else fm_matrices$Fm_NoPro; log$fm_matrix_used <- if (use_pro) "Fm_Pro" else "Fm_NoPro"
     sm_matrix <- .build_sm_matrix_advanced(data_for_phyto, base::colnames(Fm_to_use), .get_col_name)
     
-    niter_val <- base::as.integer(config$phytoclass$niter %||% 500); step_val <- base::as.numeric(config$phytoclass$step_size %||% 0.009); log$niter_value <- niter_val
+    if (base::sum(sm_matrix, na.rm = TRUE) == 0) {
+      log$status <- "Skipped (Zero Sum Pigments)"
+      return(base::list(results = NULL, log = log, pigment_matrix_used = sm_matrix, f_matrix_final = NULL, phytoclass_raw = NULL))
+    }
+    
+    niter_val <- base::as.integer(config$phytoclass$niter %||% 500)
+    step_val <- base::as.numeric(config$phytoclass$step_size %||% 0.009)
+    use_seed <- base::isTRUE(base::as.logical(config$phytoclass$use_fixed_seed))
+    seed_val <- base::as.integer(config$phytoclass$fixed_seed %||% 131234)
+    
+    log$niter_value <- niter_val
+    log$seed_used <- if(use_seed) base::as.character(seed_val) else "Unconstrained"
+    
     phyto_func <- if (use_pro) phytoclass::simulated_annealing_Prochloro else phytoclass::simulated_annealing
     
+    # --- SCOPED EXECUTION: Apply fixed seed cleanly to the algorithm only ---
+    if (use_seed) {
+      if (!base::exists(".Random.seed", envir = base::.GlobalEnv)) base::set.seed(NULL) 
+      old_seed <- base::get(".Random.seed", envir = base::.GlobalEnv)
+      base::set.seed(seed_val)
+    }
+    
     phyto_raw_out <- base::suppressWarnings({ phyto_func(Fmat = Fm_to_use, S = sm_matrix, niter = niter_val, step = step_val, verbose = FALSE) })
+    
+    if (use_seed) {
+      base::assign(".Random.seed", old_seed, envir = base::.GlobalEnv)
+    }
+    # -------------------------------------------------------------------------
+    
     if (base::is.null(phyto_raw_out) || base::is.null(phyto_raw_out[["Class abundances"]])) { base::stop("Phytoclass returned a NULL result.") }
     
     results_df <- base::as.data.frame(phyto_raw_out[["Class abundances"]]); base::colnames(results_df) <- base::paste0("Phyto_", base::make.names(base::colnames(results_df)), "_Abund"); results_df$UniqueID <- base::rownames(phyto_raw_out[["Class abundances"]]); results_df$Phyto_RMSE <- phyto_raw_out$RMSE; results_df$Phyto_CondNum <- phyto_raw_out[["condition number"]]
     final_results_df <- dplyr::select(results_df, UniqueID, Phyto_RMSE, Phyto_CondNum, tidyselect::starts_with("Phyto_"))
-    metrics <- calculate_sMAPE_R2(S_actual = sm_matrix, C_estimated = phyto_raw_out[["Class abundances"]], F_estimated = phyto_raw_out[["Final pigment ratios"]])
-    log$status <- "Success"; log$mean_rmse <- base::mean(final_results_df$Phyto_RMSE, na.rm = TRUE); log$mean_condnum <- base::mean(final_results_df$Phyto_CondNum, na.rm = TRUE); log$mean_smape <- metrics$mean_sMAPE; log$r_squared <- metrics$R_squared
-    return(base::list(results = final_results_df, log = log, pigment_matrix_used = sm_matrix))
     
-  }, error = function(e) { log$status <<- "Failed"; log$error_details <<- base::list(message = e$message); return(base::list(results = NULL, log = log, pigment_matrix_used = sm_matrix)) })
+    metrics <- calculate_sMAPE_R2(S_actual = sm_matrix, C_estimated = phyto_raw_out[["Class abundances"]], F_estimated = phyto_raw_out[[1]])
+    
+    log$status <- "Success"; log$mean_rmse <- base::mean(final_results_df$Phyto_RMSE, na.rm = TRUE); log$mean_condnum <- base::mean(final_results_df$Phyto_CondNum, na.rm = TRUE); log$mean_smape <- metrics$mean_sMAPE; log$r_squared <- metrics$R_squared
+    
+    return(base::list(
+      results = final_results_df, 
+      log = log, 
+      pigment_matrix_used = sm_matrix,
+      f_matrix_final = phyto_raw_out[[1]],
+      phytoclass_raw = phyto_raw_out
+    ))
+    
+  }, error = function(e) { 
+    log_err <- log
+    log_err$status <- "Failed"
+    log_err$error_details <- base::list(message = e$message)
+    return(base::list(results = NULL, log = log_err, pigment_matrix_used = sm_matrix, f_matrix_final = NULL, phytoclass_raw = NULL)) 
+  })
 }
 
 .build_sm_matrix_advanced <- function(data, standard_pigment_names, col_finder_func) {
@@ -89,9 +133,9 @@ run_phytoclass_analysis <- function(data_for_phyto, config, fm_matrices, rename_
   if (base::is.null(ds_obj)) return(base::list(Dataset = "Unknown", `Mapping Health` = "ERROR", Missing = base::list(base::character(0))))
   map <- ds_obj$rename_map %||% base::list(); resolved_keys <- base::names(map); missing <- base::setdiff(essential_keys, resolved_keys)
   date_keys_present <- "date" %in% resolved_keys || base::all(base::c("year", "month", "day") %in% resolved_keys); date_keys_required <- base::any(base::c("year", "month", "day") %in% essential_keys)
-  if (date_keys_required && !date_keys_present) missing <- base::union(missing, "date/time info") else if (date_keys_present) missing <- base::setdiff(missing, base::c("date", "year", "month", "day"))
   
-  # --- UPDATED JARGON FIX HERE ---
+  if (date_keys_required && !date_keys_present) missing <- base::union(missing, "date_time_info") else if (date_keys_present) missing <- base::setdiff(missing, base::c("date", "year", "month", "day"))
+  
   status <- if (base::length(missing) == 0) "OK" else "NEEDS MAPPING"
   
   return(base::list(Dataset = ds_obj$name, `Mapping Health` = status, Missing = base::list(missing)))
@@ -121,10 +165,24 @@ load_fm_matrices <- function(config) {
   return(base::list(Fm_Pro = Fm_Pro, Fm_NoPro = Fm_NoPro, error = NULL))
 }
 
+# --- FIX: Explicit Matrix coercion wrapper to prevent the %*% crash ---
 calculate_sMAPE_R2 <- function(S_actual, C_estimated, F_estimated) {
   if(base::is.null(S_actual) || base::is.null(C_estimated) || base::is.null(F_estimated)) return(base::list(mean_sMAPE = NA, R_squared = NA))
-  S_estimated <- C_estimated %*% F_estimated; if (!base::all(base::dim(S_actual) == base::dim(S_estimated))) return(base::list(mean_sMAPE = NA, R_squared = NA))
-  numerator <- base::abs(S_actual - S_estimated); denominator <- (base::abs(S_actual) + base::abs(S_estimated)) / 2; sMAPE_matrix <- base::ifelse(denominator < 1e-9, 0, numerator / denominator); mean_sMAPE <- base::mean(sMAPE_matrix, na.rm = TRUE) * 100; correlation <- stats::cor(base::as.vector(S_actual), base::as.vector(S_estimated), use = "complete.obs")
+  
+  C_mat <- base::as.matrix(C_estimated)
+  F_mat <- base::as.matrix(F_estimated)
+  S_mat <- base::as.matrix(S_actual)
+  
+  S_estimated <- C_mat %*% F_mat
+  
+  if (!base::all(base::dim(S_mat) == base::dim(S_estimated))) return(base::list(mean_sMAPE = NA, R_squared = NA))
+  
+  numerator <- base::abs(S_mat - S_estimated)
+  denominator <- (base::abs(S_mat) + base::abs(S_estimated)) / 2
+  sMAPE_matrix <- base::ifelse(denominator < 1e-9, 0, numerator / denominator)
+  mean_sMAPE <- base::mean(sMAPE_matrix, na.rm = TRUE) * 100
+  correlation <- stats::cor(base::as.vector(S_mat), base::as.vector(S_estimated), use = "complete.obs")
+  
   return(base::list(mean_sMAPE = mean_sMAPE, R_squared = base::ifelse(base::is.na(correlation), 0, correlation^2)))
 }
 
@@ -135,6 +193,9 @@ generate_run_summary_text <- function(config, master_qc_data, analysis_datasets,
   method_raw <- config$strategy$method %||% "By Source File"
   if (method_raw == "By Pigment Cluster") { size_str <- base::paste(base::paste0("C", base::seq_along(analysis_datasets), ": ", base::sapply(analysis_datasets, function(x) base::nrow(x$data))), collapse = " | "); strategy_block <- base::paste("\n--- Analysis Strategy ---", base::paste("Method: Clustering"), base::paste("Total Clusters:", base::length(analysis_datasets)), base::paste("Samples Breakdown:", size_str), sep = "\n")
   } else { strategy_block <- base::paste("\n--- Analysis Strategy ---", base::paste("Method: By Source File"), base::paste("Total Analysis Groups:", base::length(analysis_datasets)), sep = "\n") }
-  param_block <- base::paste("\n--- Phytoclass Parameters ---", base::paste("Iterations (Niter):", config$phytoclass$niter), base::paste("Cooling Step Size:", config$phytoclass$step_size), sep = "\n")
+  
+  seed_text <- if(base::isTRUE(base::as.logical(config$phytoclass$use_fixed_seed))) base::as.character(config$phytoclass$fixed_seed) else "Unconstrained"
+  param_block <- base::paste("\n--- Phytoclass Parameters ---", base::paste("Iterations (Niter):", config$phytoclass$niter), base::paste("Cooling Step Size:", config$phytoclass$step_size), base::paste("Random Seed:", seed_text), sep = "\n")
+  
   return(base::paste(qc_block, strategy_block, param_block, sep = "\n"))
 }

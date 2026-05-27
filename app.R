@@ -69,6 +69,15 @@ ui <- bslib::page_navbar(
         table.dataTable { width: 100% !important; margin: 0 auto; clear: both; border-collapse: collapse; }
         .dataTables_wrapper { width: 100% !important; overflow-x: auto; }
         .checkbox, .checkbox label { width: 100% !important; display: block; }
+        
+        /* SHARP STRAIGHT UNDERLINE FOR ACTIVE TAB */
+        .navbar-nav .nav-link.active {
+            border-bottom: 3px solid #0d6efd !important;
+            border-bottom-left-radius: 0 !important;
+            border-bottom-right-radius: 0 !important;
+            color: #0d6efd !important;
+            font-weight: bold;
+        }
       "))
     )
   ),
@@ -79,12 +88,12 @@ ui <- bslib::page_navbar(
     shiny::verbatimTextOutput("session_audit_log")
   ),
   
-  bslib::nav_panel("1. Configuration", value="step1", icon = shiny::icon("cogs"),
-                   shiny::h3("Step 1: Configure Session"),
+  bslib::nav_panel("1. Setup Parameters", value="step1", icon = shiny::icon("sliders-h"),
+                   shiny::h3("Step 1: Setup Parameters"),
                    shiny::p("Set up your folders, run settings, and data filters below."),
                    shiny::hr(),
                    bslib::layout_columns(
-                     col_widths = c(4, 8),
+                     col_widths = base::c(4, 8),
                      shiny::tagList(
                        shiny::wellPanel(
                          shiny::h4("1. Saved Sessions"),
@@ -111,6 +120,11 @@ ui <- bslib::page_navbar(
                                                 shiny::fluidRow(
                                                   shiny::column(6, shiny::numericInput("niter_input", "Iterations (Niter):", value = 500, min = 10, step = 10)),
                                                   shiny::column(6, shiny::numericInput("step_size_input", "Cooling Step Size:", value = 0.009, min = 0.0001, step = 0.001))
+                                                ),
+                                                shiny::hr(),
+                                                shiny::fluidRow(
+                                                  shiny::column(6, shiny::checkboxInput("toggle_fixed_seed", "Use Fixed Random Seed", value = FALSE)),
+                                                  shiny::column(6, shiny::conditionalPanel(condition = "input.toggle_fixed_seed == true", shiny::numericInput("fixed_seed_input", "Seed Value:", value = 131234, step = 1)))
                                                 )
                          ),
                          bslib::accordion_panel("Data Cleaning Options", icon = shiny::icon("broom"),
@@ -140,23 +154,23 @@ ui <- bslib::page_navbar(
                    )
   ),
   
-  bslib::nav_panel("2. Upload Data", value="step2", icon = shiny::icon("upload"), 
-                   shiny::h3("Step 2: Load HPLC Data"), shiny::p("Select one or more `.xlsx` files containing pigment data."), shiny::hr(), 
+  bslib::nav_panel("2. Import Data", value="step2", icon = shiny::icon("file-import"), 
+                   shiny::h3("Step 2: Import Data"), shiny::p("Select one or more `.xlsx` files containing pigment data."), shiny::hr(), 
                    bslib::layout_columns(
-                     col_widths = c(4, 8),
+                     col_widths = base::c(4, 8),
                      shiny::wellPanel(
-                       shiny::fileInput("hplc_data_files_input", "Select Files:", multiple = TRUE, accept = c(".xlsx"), width="100%"), 
+                       shiny::fileInput("hplc_data_files_input", "Select Files:", multiple = TRUE, accept = base::c(".xlsx"), width="100%"), 
                        shiny::actionButton("load_data_btn", "Load Data Files", icon = shiny::icon("play"), class = "btn-primary w-100 fw-bold")
                      ),
                      shiny::wellPanel(shiny::h4("Uploaded Files Summary"), DT::DTOutput("batch_file_load_status_table"))
                    )),
   
-  bslib::nav_panel("3. Check Columns", value="step3", icon = shiny::icon("check-square"), validationUI("step3_validation")),
-  bslib::nav_panel("4. Clean Data", value="step4", icon = shiny::icon("broom"), qcUI("step4_qc")),
-  bslib::nav_panel("5. Grouping Strategy", value="step5", icon = shiny::icon("sitemap"), strategyUI("step5_strategy")),
+  bslib::nav_panel("3. Map Variables", value="step3", icon = shiny::icon("exchange-alt"), validationUI("step3_validation")),
+  bslib::nav_panel("4. Filter & Clean", value="step4", icon = shiny::icon("filter"), qcUI("step4_qc")),
+  bslib::nav_panel("5. Group Samples", value="step5", icon = shiny::icon("object-group"), strategyUI("step5_strategy")),
   
-  bslib::nav_panel("6. Run Engine", value="step6", icon = shiny::icon("microscope"), 
-                   shiny::h3("Step 6: Run Engine"), shiny::p("Select your data and start the processing engine."), shiny::hr(), 
+  bslib::nav_panel("6. Run Analysis", value="step6", icon = shiny::icon("play-circle"), 
+                   shiny::h3("Step 6: Run Analysis"), shiny::p("Select your data and start processing."), shiny::hr(), 
                    shiny::sidebarLayout(
                      shiny::sidebarPanel(width = 4, 
                                          shiny::h4("1. Select Data to Run"), 
@@ -164,17 +178,23 @@ ui <- bslib::page_navbar(
                                          shiny::hr(), 
                                          shiny::wellPanel(style="background-color: #e9ecef; padding: 15px;", shiny::h5(shiny::icon("tasks"), "Current Run Summary"), shiny::verbatimTextOutput("analysis_params_review")), 
                                          shiny::hr(), 
-                                         shiny::h4("2. Run Engine"), 
+                                         shiny::h4("2. Run Analysis"), 
                                          shiny::actionButton("run_phytoclass_btn", "Start Analysis", class = "btn-primary btn-lg w-100 fw-bold", icon = shiny::icon("rocket"))), 
                      shiny::mainPanel(width = 8, 
                                       shinyjs::hidden(
                                         shiny::div(id = "live_tracker_card",
                                                    shiny::wellPanel(style = "background-color: #ffffff; border-left: 5px solid #17a2b8;",
-                                                                    shiny::h4(style = "color: #17a2b8; margin-top: 0; display: flex; align-items: center; justify-content: space-between;", shiny::span(shiny::icon("stopwatch"), " Live Progress Dashboard"), shiny::div(id = "tracker_spinner_container", style="animation: spin 1s linear infinite; display: inline-block;", shiny::icon("sync-alt", class="text-info"))),
+                                                                    shiny::h4(style = "color: #17a2b8; margin-top: 0; display: flex; align-items: center; justify-content: space-between;", shiny::span(shiny::icon("stopwatch"), " Live Progress Dashboard"), shiny::div(id = "tracker_spinner_container", style="animation: spin 1s linear infinite; display: inline-block;", shiny::icon("sync-alt", class="text-info fa-spin"))),
                                                                     shiny::hr(),
                                                                     shiny::fluidRow(
-                                                                      shiny::column(6, shiny::p(shiny::strong("Currently Running: "), shiny::span(id = "trk_task", class="text-primary")), shiny::p(shiny::strong("Total Progress: "), shiny::span(id = "trk_prog")), shiny::p(shiny::strong("Processing Speed: "), shiny::span(id = "trk_speed", style = "font-family: monospace; color: #6c757d;", "Calibrating..."))),
-                                                                      shiny::column(6, shiny::p(shiny::strong(shiny::span(id="lbl_elapsed", "Time Elapsed: ")), shiny::span(id = "trk_elapsed", style = "font-family: monospace; font-weight:700; color: #28a745;")), shiny::p(shiny::strong(shiny::span(id="lbl_group_eta", "Remaining (Current File): ")), shiny::span(id = "trk_group_eta", style = "font-family: monospace; font-weight:700; color: #dc3545;")), shiny::p(shiny::strong(shiny::span(id="lbl_eta", "Remaining (Total Run): ")), shiny::span(id = "trk_eta", style = "font-family: monospace; font-weight:700; color: #0d6efd;")))
+                                                                      shiny::column(7, 
+                                                                                    shiny::p(shiny::strong("Current Task: "), shiny::span(id = "trk_task", class="text-primary")), 
+                                                                                    shiny::p(shiny::strong("Batch Progress: "), shiny::span(id = "trk_prog"))
+                                                                      ),
+                                                                      shiny::column(5, 
+                                                                                    shiny::p(shiny::strong(shiny::span(id="lbl_elapsed", "Time Elapsed: ")), shiny::span(id = "trk_elapsed", style = "font-family: monospace; font-weight:700; color: #28a745;")), 
+                                                                                    shiny::p(shiny::strong(shiny::span(id="lbl_eta", "Est. Remaining: ")), shiny::span(id = "trk_eta", style = "font-family: monospace; font-weight:700; color: #0d6efd;"))
+                                                                      )
                                                                     ),
                                                                     shiny::div(style = "margin-top: 15px; background: #e9ecef; border-radius: 4px; height: 16px; width: 100%; position: relative; overflow: hidden;", shiny::div(id = "tracker_progress_bar", class="progress-bar-spec", style = "background: #17a2b8; height: 100%; width: 0%;"))
                                                    )
@@ -185,7 +205,7 @@ ui <- bslib::page_navbar(
                    )
   ),
   
-  bslib::nav_panel("7. Results & Download", value="step7", icon = shiny::icon("file-download"), reportingUI("step7_reporting")),
+  bslib::nav_panel("7. View & Export", value="step7", icon = shiny::icon("chart-line"), reportingUI("step7_reporting")),
   
   bslib::nav_spacer(),
   bslib::nav_item(shiny::actionButton("save_config_btn_global", "Save Session", icon = shiny::icon("save"), class = "btn-success btn-sm", style="margin-right: 5px;")),
@@ -208,7 +228,7 @@ server <- function(input, output, session) {
     resolution_warnings = base::list()
   )
   
-  step1_inputs <- base::c("output_dir_ui", "fm_pro_path_ui", "fm_nopro_path_ui", "toggle_handle_duplicates", "toggle_handle_nas", "toggle_handle_negatives", "toggle_handle_zerosum", "niter_input", "step_size_input", "toggle_geo_filter", "toggle_temporal_filter", "toggle_depth_filter", "min_lat_ui", "max_lat_ui", "min_lon_ui", "max_lon_ui", "min_depth_ui", "max_depth_ui", "start_date_ui", "end_date_ui")
+  step1_inputs <- base::c("output_dir_ui", "fm_pro_path_ui", "fm_nopro_path_ui", "toggle_handle_duplicates", "toggle_handle_nas", "toggle_handle_negatives", "toggle_handle_zerosum", "niter_input", "step_size_input", "toggle_fixed_seed", "fixed_seed_input", "toggle_geo_filter", "toggle_temporal_filter", "toggle_depth_filter", "min_lat_ui", "max_lat_ui", "min_lon_ui", "max_lon_ui", "min_depth_ui", "max_depth_ui", "start_date_ui", "end_date_ui")
   step5_inputs <- base::c("step5_strategy-normalization_method_input", "step5_strategy-transformation_method_input", "step5_strategy-cluster_method_input", "step5_strategy-k_max_input", "step5_strategy-k_determination_mode")
   
   .log_event <- function(category = "SYSTEM", message) {
@@ -263,7 +283,19 @@ server <- function(input, output, session) {
   
   reset_downstream_data <- function(level = "all") {
     .log_event("SYSTEM", base::sprintf("Resetting data level: %s", level))
-    if (level %in% base::c("all", "config", "qc")) { rv$master_qc_data <- NULL; rv$analysis_datasets <- base::list(); rv$analyzed_datasets <- base::list(); rv$qc_summary_df <- NULL; rv$cluster_diagnostics <- NULL; rv$staging_datasets <- base::list(); rv$mapping_history <- base::list(); rv$mapping_trigger <- rv$mapping_trigger + 1; rv$resolution_warnings <- base::list() }
+    if (level %in% base::c("all", "config")) { 
+      rv$staging_datasets <- base::list()
+      rv$mapping_history <- base::list()
+      rv$mapping_trigger <- rv$mapping_trigger + 1
+      rv$resolution_warnings <- base::list() 
+    }
+    if (level %in% base::c("all", "config", "qc")) { 
+      rv$master_qc_data <- NULL
+      rv$analysis_datasets <- base::list()
+      rv$analyzed_datasets <- base::list()
+      rv$qc_summary_df <- NULL
+      rv$cluster_diagnostics <- NULL 
+    }
     if (level == "strategy") { rv$analysis_datasets <- base::list(); rv$analyzed_datasets <- base::list(); rv$cluster_diagnostics <- NULL }
     if (level == "analysis") { rv$analyzed_datasets <- base::list() }
   }
@@ -273,6 +305,9 @@ server <- function(input, output, session) {
     base::tryCatch({
       rv$config <- initialize_config()
       update_all_ui_from_config(rv$config, session) 
+      if (!base::is.null(rv$config$phytoclass$use_fixed_seed)) shiny::updateCheckboxInput(session, "toggle_fixed_seed", value = as.logical(rv$config$phytoclass$use_fixed_seed))
+      if (!base::is.null(rv$config$phytoclass$fixed_seed)) shiny::updateNumericInput(session, "fixed_seed_input", value = as.numeric(rv$config$phytoclass$fixed_seed))
+      
       fm_result <- load_fm_matrices(rv$config)
       if (!base::is.null(fm_result$error)) .log_event("WARNING", fm_result$error) else rv$fm_matrices <- fm_result
       if (!base::is.null(rv$config)) .update_workflow_state("step2")
@@ -285,6 +320,9 @@ server <- function(input, output, session) {
       temp_config <- load_config(CONFIG_SESSION_PATH)
       if (base::is.null(temp_config)) base::stop("Configuration file returned NULL.")
       rv$config <- temp_config; update_all_ui_from_config(rv$config, session); reset_downstream_data("config"); .update_workflow_state("step2")
+      if (!base::is.null(rv$config$phytoclass$use_fixed_seed)) shiny::updateCheckboxInput(session, "toggle_fixed_seed", value = as.logical(rv$config$phytoclass$use_fixed_seed))
+      if (!base::is.null(rv$config$phytoclass$fixed_seed)) shiny::updateNumericInput(session, "fixed_seed_input", value = as.numeric(rv$config$phytoclass$fixed_seed))
+      
       fm_result <- load_fm_matrices(rv$config)
       if (base::is.null(fm_result$error)) rv$fm_matrices <- fm_result
       shiny::showNotification("Saved configuration profile reloaded.", type="message")
@@ -300,6 +338,8 @@ server <- function(input, output, session) {
     shiny::removeModal()
     base::tryCatch({
       rv$config <- load_config(CONFIG_TEMPLATE_PATH); update_all_ui_from_config(rv$config, session); reset_downstream_data("config"); .update_workflow_state("step2")
+      shiny::updateCheckboxInput(session, "toggle_fixed_seed", value = FALSE)
+      
       fm_result <- load_fm_matrices(rv$config)
       if (base::is.null(fm_result$error)) rv$fm_matrices <- fm_result
       shiny::showNotification("Standard defaults reloaded.", type="message")
@@ -310,6 +350,8 @@ server <- function(input, output, session) {
     shiny::req(rv$config)
     rv$config <- sync_config_with_ui(rv$config, input)
     rv$config <- sync_config_with_ui(rv$config, input, ns_prefix = "step5_strategy-")
+    rv$config$phytoclass$use_fixed_seed <- input$toggle_fixed_seed
+    rv$config$phytoclass$fixed_seed <- input$fixed_seed_input
     rv$config <- update_config_with_new_aliases(rv$config, rv$datasets_processed)
     base::tryCatch({ save_config(rv$config, CONFIG_SESSION_PATH); shiny::showNotification("Settings saved successfully.", type = "message") }, error = function(e) {})
   })
@@ -346,7 +388,13 @@ server <- function(input, output, session) {
   
   output$analysis_params_review <- shiny::renderText({
     shiny::req(rv$config, rv$master_qc_data, rv$analysis_datasets)
-    generate_run_summary_text(rv$config, rv$master_qc_data, rv$analysis_datasets, rv$cluster_diagnostics)
+    
+    # Map the current inputs to the config temporarily just for the display update
+    temp_config <- rv$config
+    temp_config$phytoclass$use_fixed_seed <- input$toggle_fixed_seed
+    temp_config$phytoclass$fixed_seed <- input$fixed_seed_input
+    
+    generate_run_summary_text(temp_config, rv$master_qc_data, rv$analysis_datasets, rv$cluster_diagnostics)
   })
   
   shiny::observeEvent(rv$analysis_datasets, {
@@ -362,21 +410,20 @@ server <- function(input, output, session) {
     
     shinyjs::disable("run_phytoclass_btn")
     shinyjs::show("tracker_spinner_container")
-    shinyjs::html("lbl_elapsed", "Time Elapsed: "); shinyjs::html("lbl_group_eta", "Remaining (Current File): "); shinyjs::html("lbl_eta", "Remaining (Total Run): ")
-    shinyjs::runjs("$('#trk_group_eta').css('color', '#dc3545');")
+    shinyjs::html("lbl_elapsed", "Time Elapsed: "); shinyjs::html("lbl_eta", "Est. Remaining: ")
+    
+    # Ensure explicit syncing of the seed options into the reactive config right before processing begins
+    rv$config$phytoclass$use_fixed_seed <- input$toggle_fixed_seed
+    rv$config$phytoclass$fixed_seed <- input$fixed_seed_input
     
     datasets_to_run <- rv$analysis_datasets[input$datasets_for_phytoclass_run]
     total_samples_global <- base::sum(base::vapply(datasets_to_run, function(x) base::nrow(x$data), base::numeric(1)))
     
-    # Extract active parameters
     curr_niter <- base::as.numeric(rv$config$phytoclass$niter %||% 500)
     curr_step  <- base::as.numeric(rv$config$phytoclass$step_size %||% 0.009)
     complexity_scale <- curr_niter / curr_step
     
-    # Retrieve the accumulated historical calibration factor or use a sensible factory baseline
     historical_coef <- base::as.numeric(rv$config$performance$system_calibration_coefficient %||% 0.000009)
-    
-    # Predict the absolute processing speed for this exact run setup
     predicted_speed_per_sample <- historical_coef * complexity_scale
     initial_predicted_eta <- predicted_speed_per_sample * total_samples_global
     
@@ -395,17 +442,13 @@ server <- function(input, output, session) {
       current_batch_size <- base::nrow(ds_obj$data)
       elapsed_sec <- base::as.numeric(base::difftime(base::Sys.time(), start_time_global, units="secs"))
       
-      # Blend real-time run metrics with historical data for the live countdown
       live_speed_per_sample <- if (samples_finished_so_far == 0) { predicted_speed_per_sample } else { (0.75 * (elapsed_sec / samples_finished_so_far)) + (0.25 * predicted_speed_per_sample) }
       total_remaining_samples <- total_samples_global - samples_finished_so_far
       total_eta_seconds <- live_speed_per_sample * total_remaining_samples
-      file_eta_seconds <- live_speed_per_sample * current_batch_size
       pct <- if(total_samples_global > 0) base::round((samples_finished_so_far / total_samples_global) * 100) else 0
       
-      shinyjs::html("trk_task", base::sprintf("File %d of %d: %s (n = %d)", i, base::length(datasets_to_run), ds_obj$name, current_batch_size))
-      shinyjs::html("trk_prog", base::sprintf("%d / %d Samples Handled (%d%%)", samples_finished_so_far, total_samples_global, pct))
-      shinyjs::html("trk_speed", base::sprintf("%.3f sec / sample", live_speed_per_sample))
-      shinyjs::html("trk_group_eta", base::sprintf("~%02dm %02ds", base::floor(file_eta_seconds / 60), base::round(file_eta_seconds %% 60)))
+      shinyjs::html("trk_task", base::sprintf("Analyzing '%s' (File %d of %d)", ds_obj$name, i, base::length(datasets_to_run)))
+      shinyjs::html("trk_prog", base::sprintf("%d / %d Samples (%d%%)", samples_finished_so_far, total_samples_global, pct))
       shinyjs::html("trk_eta", base::sprintf("~%02dm %02ds", base::floor(total_eta_seconds / 60), base::round(total_eta_seconds %% 60)))
       shinyjs::runjs(base::sprintf("$('#tracker_progress_bar').css('width', '%d%%');", pct))
       
@@ -413,6 +456,9 @@ server <- function(input, output, session) {
         analyzer_out <- run_phytoclass_analysis(ds_obj$data, rv$config, rv$fm_matrices)
         ds_obj$log_analyzer <- analyzer_out$log
         ds_obj$pigment_matrix_final <- analyzer_out$pigment_matrix_used
+        ds_obj$f_matrix_final <- analyzer_out$f_matrix_final
+        ds_obj$phytoclass_raw <- analyzer_out$phytoclass_raw
+        
         if (!base::is.null(analyzer_out$results)) ds_obj$data_final <- dplyr::left_join(ds_obj$data, analyzer_out$results, by = "UniqueID")
       }, error = function(e) {
         .log_event("ENGINE FAULT", base::sprintf("Math crash in dataset %s: %s", ds_obj$name, e$message))
@@ -426,7 +472,7 @@ server <- function(input, output, session) {
     rv$analyzed_datasets <- temp_analyzed_list
     shinyjs::runjs("if(window.optTimer) clearInterval(window.optTimer);")
     shinyjs::html("trk_task", "Analysis Execution Complete.")
-    shinyjs::html("trk_prog", base::sprintf("%d / %d Samples Processed (100%%)", total_samples_global, total_samples_global))
+    shinyjs::html("trk_prog", base::sprintf("%d / %d Samples (%d%%)", total_samples_global, total_samples_global, 100))
     shinyjs::runjs("$('#tracker_progress_bar').css('width', '100%').css('background', '#198754');")
     shinyjs::hide("tracker_spinner_container")
     
@@ -439,14 +485,6 @@ server <- function(input, output, session) {
     shinyjs::html("lbl_eta", "Initial Predicted ETA: ")
     shinyjs::html("trk_eta", base::sprintf("%02dm %02ds", base::floor(initial_predicted_eta / 60), base::round(initial_predicted_eta %% 60)))
     
-    diff_sec <- total_duration_sec - initial_predicted_eta
-    if (base::abs(diff_sec) < 2) { acc_text <- "Perfectly Calibrated"; acc_color <- "#198754"
-    } else if (diff_sec > 0) { acc_text <- base::sprintf("Underestimated by %02dm %02ds", base::floor(diff_sec/60), base::round(diff_sec %% 60)); acc_color <- "#dc3545"
-    } else { diff_sec <- base::abs(diff_sec); acc_text <- base::sprintf("Overestimated by %02dm %02ds", base::floor(diff_sec/60), base::round(diff_sec %% 60)); acc_color <- "#fd7e14" }
-    shinyjs::html("trk_group_eta", acc_text); shinyjs::runjs(base::sprintf("$('#trk_group_eta').css('color', '%s');", acc_color))
-    
-    # --- LEARNING ENGINE: CUMULATIVE ROLLING AVERAGE INTERCEPT ---
-    # Only update calibration if at least one dataset processed successfully to prevent instant-fail skewing.
     if (base::any(base::vapply(temp_analyzed_list, function(x) !base::is.null(x$data_final), base::logical(1)))) {
       local_config <- rv$config
       total_historical_runs <- base::as.numeric(local_config$performance$total_historical_runs %||% 0)
@@ -470,6 +508,13 @@ server <- function(input, output, session) {
       }
     }
     
+    base::tryCatch({
+      checkpoint_dir <- rv$config$workspace$output_directory %||% "phytoclass_output"
+      if (!base::dir.exists(checkpoint_dir)) base::dir.create(checkpoint_dir, recursive = TRUE)
+      base::saveRDS(rv$analyzed_datasets, file = base::file.path(checkpoint_dir, "AUTOSAVE_LATEST_RUN.rds"))
+      .log_event("SYSTEM", "Data safely checkpointed to disk.")
+    }, error = function(e) { .log_event("WARNING", "Autosave checkpoint failed.") })
+    
     .update_workflow_state("step7")
     shinyjs::enable("run_phytoclass_btn")
   })
@@ -478,7 +523,7 @@ server <- function(input, output, session) {
     shiny::req(rv$analyzed_datasets)
     ds_with_log <- purrr::keep(rv$analyzed_datasets, ~!base::is.null(.x$log_analyzer))
     if (base::length(ds_with_log) == 0) return(DT::datatable(tibble::tibble(Status="No analysis results available.")))
-    summary_df <- purrr::map_df(ds_with_log, ~tibble::tibble(Dataset = .x$name, Status = .x$log_analyzer$status %||% "N/A", `Fm Used` = .x$log_analyzer$fm_matrix_used %||% "N/A", `Mean RMSE` = base::round(.x$log_analyzer$mean_rmse %||% NA, 4), `Mean Cond Num` = base::round(.x$log_analyzer$mean_condnum %||% NA, 2), `Details` = .x$log_analyzer$error_details$message %||% ""))
+    summary_df <- purrr::map_df(ds_with_log, ~tibble::tibble(Dataset = .x$name, Status = .x$log_analyzer$status %||% "N/A", `Fm Used` = .x$log_analyzer$fm_matrix_used %||% "N/A", `Seed Used` = .x$log_analyzer$seed_used %||% "N/A", `Mean RMSE` = base::round(.x$log_analyzer$mean_rmse %||% NA, 4), `Mean Cond Num` = base::round(.x$log_analyzer$mean_condnum %||% NA, 2), `Details` = .x$log_analyzer$error_details$message %||% ""))
     DT::datatable(summary_df, rownames=FALSE, options = base::list(scrollX = TRUE)) |> DT::formatStyle("Status", backgroundColor = DT::styleEqual(base::c("Success", "Failed"), base::c("#d1e7dd", "#fff3cd"))) |> DT::formatStyle("Details", color = "#dc3545", fontSize = "0.9em")
   })
   
@@ -486,10 +531,7 @@ server <- function(input, output, session) {
   # --- DIRECT EXPLICIT HELP MANUAL (ROBUST SANITIZED FOR SWITCH PARSING) ---
   # =========================================================================
   shiny::observeEvent(input$help_btn_global, {
-    # Extract the raw input tab value safely
     raw_tab <- input$main_navbar
-    
-    # Strip any potential noise or unexpected parsing characters to guarantee fallback execution
     current_tab <- if (base::is.null(raw_tab) || base::length(raw_tab) == 0) "step1" else base::as.character(raw_tab)
     
     btn_prim <- function(label, ico) { shiny::span(style = "background-color: #0d6efd; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 0.9em; margin: 0 4px; display: inline-block;", shiny::icon(ico), base::paste0(" ", label)) }
@@ -501,7 +543,7 @@ server <- function(input, output, session) {
     help_styles <- shiny::tags$style(shiny::HTML(".help-section-title { border-bottom: 2px solid #e2e8f0; color: #0d6efd; margin-top: 15px; margin-bottom: 10px; padding-bottom: 5px; font-weight: bold; } code { font-family: monospace; color: #d63384; } li { margin-bottom: 10px; line-height: 1.5; }"))
     
     content_step1 <- shiny::tagList(
-      shiny::h4("Step 1: Setup & Rules"), 
+      shiny::h4("Step 1: Setup Parameters"), 
       shiny::p("Configure file paths, algorithm settings, and data cleaning rules."), 
       shiny::div(class="help-section-title", "1. Saved Sessions & Matrix Files"), 
       shiny::tags$ul(
@@ -511,7 +553,8 @@ server <- function(input, output, session) {
       ), 
       shiny::div(class="help-section-title", "2. Algorithm Settings"), 
       shiny::tags$ul(
-        shiny::tags$li(ui_in("Iterations"), " & ", ui_in("Cooling Step Size"), ": Controls the optimization algorithm. Higher iterations and smaller steps increase accuracy but take longer. Leave as default unless required.")
+        shiny::tags$li(ui_in("Iterations"), " & ", ui_in("Cooling Step Size"), ": Controls the optimization algorithm. Higher iterations and smaller steps increase accuracy but take longer. Leave as default unless required."),
+        shiny::tags$li(ui_in("Use Fixed Random Seed"), ": Forces the algorithm to take the exact same randomized mathematical route every run to guarantee 1-to-1 strict decimal reproducibility.")
       ), 
       shiny::div(class="help-section-title", "3. Cleaning Rules & Filters"), 
       shiny::tags$ul(
@@ -521,7 +564,7 @@ server <- function(input, output, session) {
     )
     
     content_step2 <- shiny::tagList(
-      shiny::h4("Step 2: Upload Your Data"),
+      shiny::h4("Step 2: Import Data"),
       shiny::p("Upload raw HPLC pigment data for analysis."),
       shiny::tags$ul(
         shiny::tags$li(ui_in("Select Files"), ": Choose one or multiple .xlsx files from your computer."),
@@ -530,7 +573,7 @@ server <- function(input, output, session) {
     )
     
     content_step3 <- shiny::tagList(
-      shiny::h4("Step 3: Column Mapping Wizard"),
+      shiny::h4("Step 3: Map Variables"),
       shiny::p("Match your uploaded column names to the standard pigment names required by the algorithm."),
       shiny::tags$ul(
         shiny::tags$li(shiny::span(class="badge bg-warning text-dark", "NEEDS MAPPING"), ": Click rows with this warning to assign column headers."),
@@ -540,7 +583,7 @@ server <- function(input, output, session) {
     )
     
     content_step4 <- shiny::tagList(
-      shiny::h4("Step 4: Quality Control"),
+      shiny::h4("Step 4: Filter & Clean"),
       shiny::p("Automatically process your data using the rules configured in Step 1."),
       shiny::tags$ul(
         shiny::tags$li(btn_prim("Clean My Data", "shield-alt"), ": Removes duplicates, fixes blank values, and applies depth/date/location filters."),
@@ -549,7 +592,7 @@ server <- function(input, output, session) {
     )
     
     content_step5 <- shiny::tagList(
-      shiny::h4("Step 5: Grouping Strategy"),
+      shiny::h4("Step 5: Group Samples"),
       shiny::p("Define how samples are grouped before processing."),
       shiny::tags$ul(
         shiny::tags$li(ui_tog("By Source File"), ": Analyzes each uploaded file separately."),
@@ -560,7 +603,7 @@ server <- function(input, output, session) {
     )
     
     content_step6 <- shiny::tagList(
-      shiny::h4("Step 6: Run the Engine"),
+      shiny::h4("Step 6: Run Analysis"),
       shiny::p("Execute the mathematical optimization to calculate phytoplankton communities."),
       shiny::tags$ul(
         shiny::tags$li(ui_in("Select Data to Run"), ": Choose which specific groups to process."),
@@ -569,7 +612,7 @@ server <- function(input, output, session) {
     )
     
     content_step7 <- shiny::tagList(
-      shiny::h4("Step 7: View Results & Export"),
+      shiny::h4("Step 7: View & Export"),
       shiny::p("Review performance metrics and export the final calculated data."),
       shiny::tags$ul(
         shiny::tags$li(shiny::strong("RMSE / Condition Number:"), " Diagnostic scores for the mathematical calculation. Lower numbers indicate better mathematical confidence."),
@@ -578,7 +621,6 @@ server <- function(input, output, session) {
       )
     )
     
-    # Safe switch tracking with unified fallback target
     selected_content <- base::switch(current_tab, 
                                      "step1" = content_step1, 
                                      "step2" = content_step2, 

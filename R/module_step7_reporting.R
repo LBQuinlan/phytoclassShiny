@@ -74,6 +74,7 @@ reportingServer <- function(id, rv, .log_event) {
         "--- RUN FIT METRICS ---",
         base::paste("Convergence State :", log$status %||% "N/A"),
         base::paste("Selected Baseline :", log$fm_matrix_used %||% "N/A"),
+        base::paste("Random Seed       :", log$seed_used %||% "Unconstrained"),
         base::paste("Residual Error    :", base::round(log$mean_rmse %||% NA, 4)),
         base::paste("Condition Matrix  :", base::round(log$mean_condnum %||% NA, 2)),
         sep = "\n"
@@ -218,7 +219,7 @@ reportingServer <- function(id, rv, .log_event) {
       shinybusy::show_modal_spinner(text = "Saving Results...")
       
       base_output_dir <- rv$config$workspace$output_directory %||% "phytoclass_output"
-      timestamp <- base::format(base::Sys.time(), "%Y-%m-%d_%H%M")
+      timestamp <- base::format(base::Sys.time(), "%Y-%m-%d_%H%M%S")
       session_output_dir <- base::file.path(base_output_dir, base::paste0("Session_", timestamp))
       plots_output_dir <- base::file.path(session_output_dir, "Plots")
       
@@ -235,6 +236,7 @@ reportingServer <- function(id, rv, .log_event) {
         }
         
         method_raw <- rv$config$strategy$method %||% "hclust"
+        seed_used <- if (base::isTRUE(base::as.logical(rv$config$phytoclass$use_fixed_seed))) .safe_char(rv$config$phytoclass$fixed_seed) else "Unconstrained"
         cluster_k_auto <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$optimal_k else "N/A"
         cluster_k_used <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$used_k else "N/A"
         cluster_algo <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$algorithm else "N/A"
@@ -242,12 +244,13 @@ reportingServer <- function(id, rv, .log_event) {
         transform_metric <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$transform else "N/A"
         
         session_info <- base::data.frame(
-          Parameter = base::c("Session ID", "Date", "Niter Cycles", "Cooling Decay Rate", "Grouping Paradigm", "Transformation", "Distance Metric", "Cluster Algorithm", "Optimum K Target", "Realized K Grouping"),
+          Parameter = base::c("Session ID", "Date", "Niter Cycles", "Cooling Decay Rate", "Random Seed", "Grouping Paradigm", "Transformation", "Distance Metric", "Cluster Algorithm", "Optimum K Target", "Realized K Grouping"),
           Value = base::c(
             .safe_char(rv$session_id),
             .safe_char(base::Sys.Date()),
             .safe_char(rv$config$phytoclass$niter),
             .safe_char(rv$config$phytoclass$step_size),
+            seed_used,
             .safe_char(method_raw),
             .safe_char(transform_metric),
             .safe_char(dist_metric),
@@ -306,7 +309,28 @@ reportingServer <- function(id, rv, .log_event) {
             base::colnames(clean_output) <- base::make.names(.clean_names(base::colnames(clean_output)), unique = TRUE)
             if("UniqueID" %in% base::names(clean_output)) clean_output <- clean_output |> dplyr::select(UniqueID, dplyr::everything())
             
-            openxlsx::write.xlsx(clean_output, file = base::file.path(session_output_dir, base::paste0("Result_", ds_name, ".xlsx")))
+            # --- NEW: BUNDLING EVERYTHING INTO ONE MULTI-SHEET EXCEL FILE ---
+            wb_sheets <- base::list("Community Estimates" = clean_output)
+            
+            if (!base::is.null(ds$f_matrix_final)) {
+              f_df <- base::as.data.frame(ds$f_matrix_final)
+              # Convert row names into a proper column so it exports elegantly
+              f_df <- base::cbind(Phytoplankton_Class = base::rownames(f_df), f_df)
+              base::rownames(f_df) <- NULL 
+              wb_sheets[["Optimized F-Matrix"]] <- f_df
+            }
+            
+            # Save the bundled multi-sheet workbook
+            openxlsx::write.xlsx(wb_sheets, file = base::file.path(session_output_dir, base::paste0("Result_", ds_name, ".xlsx")))
+            
+            # Keep the RDS file as well for advanced R users
+            if (!base::is.null(ds$phytoclass_raw)) {
+              base::saveRDS(
+                ds$phytoclass_raw, 
+                file = base::file.path(session_output_dir, base::paste0("Raw_Phytoclass_Output_", ds_name, ".rds"))
+              )
+            }
+            
             ggplot2::ggsave(filename = base::file.path(plots_output_dir, base::paste0("AreaPlot_", ds_name, ".png")), plot = .plot_area(ds$data_final), width = 10, height = 6, dpi = 300)
             ggplot2::ggsave(filename = base::file.path(plots_output_dir, base::paste0("BarPlot_", ds_name, ".png")), plot = .plot_bar(ds$data_final), width = 10, height = 6, dpi = 300)
           }
