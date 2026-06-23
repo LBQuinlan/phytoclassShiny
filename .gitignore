@@ -1,9 +1,27 @@
-.Rproj.user
+# --- R Environment & System Artifacts ---
 .Rhistory
 .RData
 .Ruserdata
-thumbs.db
-config_session.yaml
-outputs/
-*.xlsx
-!R/Fm_matrices/*.xlsx
+.Rproj.user/
+.Rapp.history
+*.RData
+*.Rhistory
+
+# --- Application Outputs & Sensitive Data ---
+# Ignores all generated session results and autosaves
+phyto_output/
+phytoclass_output/
+*.rds
+
+# --- Local Environment & Sandboxing ---
+# Ignores the local library sandbox (keeps repo size light)
+app_packages/
+
+# --- Operational Logs ---
+# Ignores local session logs and launcher histories
+phytoclassShiny_launch_log.txt
+*.log
+
+# --- OS Specific Artifacts ---
+Thumbs.db
+.DS_Store
