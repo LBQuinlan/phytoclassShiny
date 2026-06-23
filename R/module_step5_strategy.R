@@ -1,3 +1,9 @@
+# ============================================================================
+# MODULE: Step 5 - Grouping Strategy
+# Description: Handles sample grouping workflows via file splitting or 
+#              chemometric pigment clustering transformations.
+# ============================================================================
+
 strategyUI <- function(id) {
   ns <- shiny::NS(id)
   
@@ -18,7 +24,7 @@ strategyUI <- function(id) {
         shiny::conditionalPanel(condition = base::sprintf("input['%s'] == 'By Pigment Cluster'", ns("grouping_method_input")), 
                                 shiny::hr(), shiny::h5("Clustering Settings"), 
                                 shiny::selectInput(ns("normalization_method_input"), "1. Data to compare:", choices = base::c("Ratio to Tchla", "Raw Data"), selected = "Ratio to Tchla", width="100%"), 
-                                shiny::selectInput(ns("transformation_method_input"), "2. Transformation:", choices = base::c("Box-Cox", "Log(x+1)", "None"), selected = "Box-Cox", width="100%"), 
+                                shiny::selectInput(ns("transformation_method_input"), "2. Transformation:", choices = base::c("Box-Cox", "Log10(x+1)", "None"), selected = "Box-Cox", width="100%"), 
                                 shiny::selectInput(ns("distance_method_input"), "3. Distance Metric:", choices = base::c("Manhattan", "Euclidean"), selected = "Manhattan", width="100%"), 
                                 shiny::selectInput(ns("cluster_method_input"), "4. Algorithm & Pruning:", choices = base::c("Ward's + DynamicTreeCut", "Ward's + Silhouette Cut", "K-Means"), selected = "Ward's + DynamicTreeCut", width="100%"), 
                                 
@@ -68,7 +74,6 @@ strategyServer <- function(id, rv, .log_event, .update_workflow_state, session_p
       shiny::req(rv$master_qc_data); master_data <- rv$master_qc_data
       if (base::nrow(master_data) == 0) { shiny::showNotification("No data available to group.", type = "error"); return() }
       
-      # SAFEGUARD 1: Engage a visible loading spinner so the app doesn't look frozen on big datasets
       shinybusy::show_modal_spinner(text = "Rendering strategy previews... This may take a moment for large datasets.")
       
       base::tryCatch({
@@ -98,8 +103,8 @@ strategyServer <- function(id, rv, .log_event, .update_workflow_state, session_p
             pigment_data <- pigment_data / safe_tchla
           }
           
-          if (input$transformation_method_input == "Log(x+1)") {
-            pigment_data <- base::log1p(pigment_data)
+          if (input$transformation_method_input %in% base::c("Log(x+1)", "Log10(x+1)")) {
+            pigment_data <- base::log10(pigment_data + 1)
           } else if (input$transformation_method_input == "Box-Cox") {
             .robust_boxcox <- function(v) {
               base::tryCatch({
@@ -178,21 +183,22 @@ strategyServer <- function(id, rv, .log_event, .update_workflow_state, session_p
         shinyjs::show("preview_results_container"); shinyjs::show("confirm_strategy_btn")
         
       }, error = function(e) {
-        # SAFEGUARD 2: If the distance matrix overloads memory or fails, tell the user instead of freezing!
         .log_event("ERROR", base::paste("Strategy preview generation crashed:", e$message))
         shiny::showNotification(base::paste("Preview Failed:", e$message), type = "error", duration = 10)
       }, finally = {
-        # ALWAYS remove the spinner, even if it crashes
         shinybusy::remove_modal_spinner()
       })
     })
     
-    # SAFEGUARD 3: Removed `dom = 't'` so the table has standard pagination controls. Now you can see rows 11 through 100+.
+    # ============================================================================
+    # FIXED: APPLIED SERVER = FALSE TO PREVENT CLUSTERING JSON CONVERSION ERRORS
+    # ============================================================================
     output$cluster_distribution_table <- DT::renderDT({ 
       shiny::req(local_env$summary_df)
       DT::datatable(local_env$summary_df, rownames=FALSE, options = base::list(pageLength = 10)) |> 
         DT::formatStyle("Status", color = DT::styleEqual(c("OK", "Warning (N<12)"), c("#198754", "#dc3545")), fontWeight = 'bold') 
-    })
+    }, server = FALSE)
+    # ============================================================================
     
     output$pca_plot <- shiny::renderPlot({ shiny::req(local_env$pca_plot); local_env$pca_plot })
     output$dendro_plot <- shiny::renderPlot({ shiny::req(local_env$dendro_plot); local_env$dendro_plot })

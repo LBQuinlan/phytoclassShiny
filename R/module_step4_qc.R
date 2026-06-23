@@ -55,22 +55,17 @@ qcServer <- function(id, rv, .log_event, .update_workflow_state, reset_downstrea
         
         initial_n <- base::nrow(df)
         
-
-        # Shield coordinates, dates, and ID columns from the QC sweep
-        protected_cols <- base::c("UniqueID", "SourceFile", "original_row_num", "year", "month", "day", "date", "time", "Station", "Cruise", "Zone")
+        # --- Metadata Protection Shield ---
+        meta_matches <- base::grep("(?i)id|file|row|year|month|day|date|time|station|cruise|zone|sample|site", base::colnames(df), value = TRUE)
+        geo_matches <- base::grep("(?i)lat|lon|depth", base::colnames(df), value = TRUE)
+        protected_cols <- base::unique(base::c("UniqueID", "SourceFile", "original_row_num", meta_matches, geo_matches))
         
-        # Add mapped coordinates if they exist
         if (!base::is.null(rename_map$latitude)) protected_cols <- base::c(protected_cols, rename_map$latitude)
         if (!base::is.null(rename_map$longitude)) protected_cols <- base::c(protected_cols, rename_map$longitude)
         if (!base::is.null(rename_map$depth)) protected_cols <- base::c(protected_cols, rename_map$depth)
         
-        # Catch any column name containing coordinate terms using a fuzzy match
-        geo_matches <- base::grep("(?i)lat|lon|depth", base::colnames(df), value = TRUE)
-        protected_cols <- base::unique(base::c(protected_cols, geo_matches))
-        
-        # Define the target columns (Only the Pigment data)
+        protected_cols <- base::unique(protected_cols)
         target_cols <- base::setdiff(base::colnames(df), protected_cols)
-        # =========================================================================
         
         # 1. Duplicates
         if (base::isTRUE(cfg_clean$handle_duplicates$enabled)) {
@@ -86,15 +81,14 @@ qcServer <- function(id, rv, .log_event, .update_workflow_state, reset_downstrea
             dplyr::mutate(dplyr::across(dplyr::any_of(target_cols), ~ base::ifelse(base::is.na(.x), 0, .x)))
         }
         
-        # 3. Handle Negatives (Targeted ONLY at pigments - SAVES LATITUDE DATA)
+        # 3. Handle Negatives
         if (base::isTRUE(cfg_clean$enforce_non_negative_pigments$enabled)) {
           df <- df |> 
             dplyr::mutate(dplyr::across(dplyr::any_of(target_cols), ~ base::ifelse(base::is.numeric(.x) & .x < 0, 0, .x)))
         }
         
-        # 4. Filter empty samples (zerosum rows where no pigments exist)
+        # 4. Filter empty samples
         if (base::isTRUE(cfg_clean$handle_zerosum$enabled) && base::length(target_cols) > 0) {
-          # Use safe_as_numeric to prevent char crashes
           num_df <- df[, target_cols, drop = FALSE] |> dplyr::mutate(dplyr::across(dplyr::everything(), ~ base::suppressWarnings(base::as.numeric(.x))))
           row_sums <- base::rowSums(num_df, na.rm = TRUE)
           df <- df[row_sums > 0, ]
@@ -106,15 +100,16 @@ qcServer <- function(id, rv, .log_event, .update_workflow_state, reset_downstrea
         n_before_geo <- base::nrow(df)
         if (base::isTRUE(cfg_filt$geospatial$enabled) && !base::is.null(rename_map$latitude) && !base::is.null(rename_map$longitude)) {
           lat_col <- rename_map$latitude
-          lon_col <- rename_map$longitude
-          min_lat <- base::as.numeric(rv$config$filtering$geospatial$min_lat %||% -90)
-          max_lat <- base::as.numeric(rv$config$filtering$geospatial$max_lat %||% 90)
-          min_lon <- base::as.numeric(rv$config$filtering$geospatial$min_lon %||% -180)
-          max_lon <- base::as.numeric(rv$config$filtering$geospatial$max_lon %||% 180)
+          character_lon <- rename_map$longitude
+          
+          min_lat <- base::as.numeric(rv$config$filtering$geospatial$min_latitude %||% -90)
+          max_lat <- base::as.numeric(rv$config$filtering$geospatial$max_latitude %||% 90)
+          min_lon <- base::as.numeric(rv$config$filtering$geospatial$min_longitude %||% -180)
+          max_lon <- base::as.numeric(rv$config$filtering$geospatial$max_longitude %||% 180)
           
           df <- df |> dplyr::filter(
             base::as.numeric(.data[[lat_col]]) >= min_lat & base::as.numeric(.data[[lat_col]]) <= max_lat &
-              base::as.numeric(.data[[lon_col]]) >= min_lon & base::as.numeric(.data[[lon_col]]) <= max_lon
+              base::as.numeric(.data[[character_lon]]) >= min_lon & base::as.numeric(.data[[character_lon]]) <= max_lon
           )
         }
         dropped_geo <- n_before_geo - base::nrow(df)
@@ -170,11 +165,15 @@ qcServer <- function(id, rv, .log_event, .update_workflow_state, reset_downstrea
       shiny::showNotification("Quality Control & Filtering complete.", type = "message")
     })
     
+    # ============================================================================
+    # FIXED: APPLIED SERVER = FALSE TO PREVENT DATA SERIALIZATION POPUPS
+    # ============================================================================
     output$qc_summary_table <- DT::renderDT({
       shiny::req(rv$qc_summary_df)
       DT::datatable(rv$qc_summary_df, rownames = FALSE, options = base::list(pageLength = 10, scrollX = TRUE)) |>
         DT::formatStyle("Final Samples", fontWeight = "bold", color = "#198754")
-    })
+    }, server = FALSE)
+    # ============================================================================
     
   })
 }

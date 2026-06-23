@@ -12,18 +12,54 @@
 base::cat("--- Initializing _phytoclass_Shiny V1.0 ---\n")
 base::options(shiny.maxRequestSize = 500 * 1024^2)
 
+# ============================================================================
+# 1. CONDITIONAL SANDBOXING (Use local library if present)
+# ============================================================================
+app_lib <- base::file.path(base::getwd(), "app_packages")
+
+if (base::dir.exists(app_lib)) {
+  base::cat("--> Local sandbox 'app_packages' found. Activating isolated environment...\n")
+  base::.libPaths(base::c(app_lib, base::.Library))
+} else {
+  base::cat("--> No local sandbox found. Defaulting to standard system R library...\n")
+}
+
+# ============================================================================
+# 2. DEFENSIVE RAM PURGE (Updated)
+# ============================================================================
+# Strictly target UI extensions. Do NOT include core execution packages 
+# like 'shiny', 'rlang', or 'promises' as they are required for the active run loop.
+conflict_prone_packages <- base::c(
+  "shinybusy", "shinyWidgets", "shinyjs", "DT", "bslib"
+)
+for (ns in conflict_prone_packages) {
+  if (ns %in% base::loadedNamespaces()) {
+    base::tryCatch({ base::detach(base::paste0("package:", ns), unload = TRUE, character.only = TRUE) }, error = function(e) NULL)
+    base::tryCatch({ base::unloadNamespace(ns) }, error = function(e) NULL)
+  }
+}
+base::cat("--> Active RAM cleared of potential package conflicts.\n")
+
+# ============================================================================
+# 3. MASTER REQUIRED PACKAGES LIST (Updated)
+# ============================================================================
 required_packages <- base::c(
-  "shiny", "bslib", "shinyjs", "shinyWidgets", "DT", "yaml", "dplyr", 
-  "tidyr", "readxl", "openxlsx", "lubridate", "digest", "rlang", 
+  "shiny", "bslib", "shinyjs", "shinyWidgets", "DT", "htmlwidgets", "jsonlite",
+  "yaml", "dplyr", "tidyr", "readxl", "openxlsx", "lubridate", "digest", "rlang", 
   "tibble", "fs", "purrr", "scales", "vegan", "cluster", "factoextra", 
-  "ggplot2", "MASS", "dynamicTreeCut", "glue", "stringdist", "phytoclass"
+  "ggplot2", "MASS", "dynamicTreeCut", "glue", "stringdist", "phytoclass",
+  "shinybusy", "tidyselect"  
 )
 
 base::cat("--> Checking system dependencies...\n")
 for (pkg in required_packages) {
   if (!base::requireNamespace(pkg, quietly = TRUE)) {
-    base::cat(base::sprintf("    ...Installing missing package: %s\n", pkg))
-    base::tryCatch({ utils::install.packages(pkg, dependencies = TRUE) }, error = function(e) { base::stop(base::paste("Failed to install", pkg, ":", e$message)) })
+    base::cat(base::sprintf("    ...Installing missing package to sandbox: %s\n", pkg))
+    base::tryCatch({ 
+      utils::install.packages(pkg, lib = app_lib, dependencies = TRUE) 
+    }, error = function(e) { 
+      base::stop(base::paste("Failed to install", pkg, ":", e$message)) 
+    })
   }
 }
 
@@ -38,7 +74,6 @@ base::tryCatch({
   for (script in scripts_to_source) { base::source(script) }
 }, error = function(e) { base::stop("FATAL ERROR: Failed to source R modules. Error: ", e$message) })
 base::cat("--> All modules sourced successfully.\n\n")
-
 
 # ============================================================================
 # --- 1. USER INTERFACE (UI) ---
@@ -69,15 +104,7 @@ ui <- bslib::page_navbar(
         table.dataTable { width: 100% !important; margin: 0 auto; clear: both; border-collapse: collapse; }
         .dataTables_wrapper { width: 100% !important; overflow-x: auto; }
         .checkbox, .checkbox label { width: 100% !important; display: block; }
-        
-        /* SHARP STRAIGHT UNDERLINE FOR ACTIVE TAB */
-        .navbar-nav .nav-link.active {
-            border-bottom: 3px solid #0d6efd !important;
-            border-bottom-left-radius: 0 !important;
-            border-bottom-right-radius: 0 !important;
-            color: #0d6efd !important;
-            font-weight: bold;
-        }
+        .navbar-nav .nav-link.active { border-bottom: 3px solid #0d6efd !important; border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; color: #0d6efd !important; font-weight: bold; }
       "))
     )
   ),
@@ -106,10 +133,11 @@ ui <- bslib::page_navbar(
                          )
                        ),
                        shiny::wellPanel(
-                         shiny::h4("2. Matrix Files"),
+                         shiny::h4("2. Reference Tables"),
                          shinyjs::disabled(shiny::textInput("output_dir_ui", "Output Directory (from config):", width = "100%")),
-                         shiny::textInput("fm_pro_path_ui", "Fm_Pro.xlsx Path:", width="100%"),
-                         shiny::textInput("fm_nopro_path_ui", "Fm_NoPro.xlsx Path:", width="100%"),
+                         shiny::textInput("fm_pro_path_ui", "Fm_Pro.xlsx Path:", value = "R/Reference_Tables/Fm_Pro.xlsx", width="100%"),
+                         shiny::textInput("fm_nopro_path_ui", "Fm_NoPro.xlsx Path:", value = "R/Reference_Tables/Fm_NoPro.xlsx", width="100%"),
+                         shiny::hr(),
                          shiny::actionButton("load_fm_btn", "Check Matrix Files", icon = shiny::icon("check-double"), width="100%", class="btn-outline-primary")
                        )
                      ),
@@ -125,6 +153,11 @@ ui <- bslib::page_navbar(
                                                 shiny::fluidRow(
                                                   shiny::column(6, shiny::checkboxInput("toggle_fixed_seed", "Use Fixed Random Seed", value = FALSE)),
                                                   shiny::column(6, shiny::conditionalPanel(condition = "input.toggle_fixed_seed == true", shiny::numericInput("fixed_seed_input", "Seed Value:", value = 131234, step = 1)))
+                                                ),
+                                                shiny::hr(),
+                                                shiny::fluidRow(
+                                                  shiny::column(6, shiny::checkboxInput("toggle_custom_minmax", "Use Custom Min/Max Bounds", value = FALSE)),
+                                                  shiny::column(6, shiny::conditionalPanel(condition = "input.toggle_custom_minmax == true", shiny::selectInput("minmax_file_selector", "Select MinMax Profile:", choices = NULL, width = "100%")))
                                                 )
                          ),
                          bslib::accordion_panel("Data Cleaning Options", icon = shiny::icon("broom"),
@@ -187,14 +220,8 @@ ui <- bslib::page_navbar(
                                                                     shiny::h4(style = "color: #17a2b8; margin-top: 0; display: flex; align-items: center; justify-content: space-between;", shiny::span(shiny::icon("stopwatch"), " Live Progress Dashboard"), shiny::div(id = "tracker_spinner_container", style="animation: spin 1s linear infinite; display: inline-block;", shiny::icon("sync-alt", class="text-info fa-spin"))),
                                                                     shiny::hr(),
                                                                     shiny::fluidRow(
-                                                                      shiny::column(7, 
-                                                                                    shiny::p(shiny::strong("Current Task: "), shiny::span(id = "trk_task", class="text-primary")), 
-                                                                                    shiny::p(shiny::strong("Batch Progress: "), shiny::span(id = "trk_prog"))
-                                                                      ),
-                                                                      shiny::column(5, 
-                                                                                    shiny::p(shiny::strong(shiny::span(id="lbl_elapsed", "Time Elapsed: ")), shiny::span(id = "trk_elapsed", style = "font-family: monospace; font-weight:700; color: #28a745;")), 
-                                                                                    shiny::p(shiny::strong(shiny::span(id="lbl_eta", "Est. Remaining: ")), shiny::span(id = "trk_eta", style = "font-family: monospace; font-weight:700; color: #0d6efd;"))
-                                                                      )
+                                                                      shiny::column(7, shiny::p(shiny::strong("Current Task: "), shiny::span(id = "trk_task", class="text-primary")), shiny::p(shiny::strong("Batch Progress: "), shiny::span(id = "trk_prog"))),
+                                                                      shiny::column(5, shiny::p(shiny::strong(shiny::span(id="lbl_elapsed", "Time Elapsed: ")), shiny::span(id = "trk_elapsed", style = "font-family: monospace; font-weight:700; color: #28a745;")), shiny::p(shiny::strong(shiny::span(id="lbl_eta", "Est. Remaining: ")), shiny::span(id = "trk_eta", style = "font-family: monospace; font-weight:700; color: #0d6efd;")))
                                                                     ),
                                                                     shiny::div(style = "margin-top: 15px; background: #e9ecef; border-radius: 4px; height: 16px; width: 100%; position: relative; overflow: hidden;", shiny::div(id = "tracker_progress_bar", class="progress-bar-spec", style = "background: #17a2b8; height: 100%; width: 0%;"))
                                                    )
@@ -209,7 +236,8 @@ ui <- bslib::page_navbar(
   
   bslib::nav_spacer(),
   bslib::nav_item(shiny::actionButton("save_config_btn_global", "Save Session", icon = shiny::icon("save"), class = "btn-success btn-sm", style="margin-right: 5px;")),
-  bslib::nav_item(shiny::actionButton("help_btn_global", "Help", icon = shiny::icon("question-circle"), class = "btn-info btn-sm", style="margin-right: 15px;"))
+  bslib::nav_item(shiny::actionButton("help_btn_global", "Help", icon = shiny::icon("question-circle"), class = "btn-info btn-sm", style="margin-right: 5px;")),
+  bslib::nav_item(shiny::actionButton("quit_app_btn", "Exit", icon = shiny::icon("power-off"), class = "btn-danger btn-sm", style="margin-right: 15px;"))
 )
 
 # ============================================================================
@@ -217,6 +245,56 @@ ui <- bslib::page_navbar(
 # ============================================================================
 
 server <- function(input, output, session) {
+  
+  # ============================================================================
+  # GLOBAL SHUTDOWN LOCKOUT & CONSOLE RELEASE
+  # ============================================================================
+  app_is_stopping <- FALSE
+  
+  .force_console_return <- function() {
+    if (!app_is_stopping) {
+      app_is_stopping <<- TRUE
+      
+      base::cat("\n\n=======================================================\n")
+      base::cat("[OK] PHYTOCLASS SHUTDOWN COMPLETE.\n")
+      base::cat("The engine has cleanly exited.\n")
+      base::cat("=======================================================\n")
+      
+      # 1. Ask Shiny to stop politely
+      base::tryCatch({ shiny::stopApp() }, error = function(e) NULL)
+      
+      # 2. Wait exactly 1 second, then silently execute the hard break
+      later::later(function() {
+        
+        # Method A: Programmatically push the RStudio "Interrupt R" button
+        if (base::requireNamespace("rstudioapi", quietly = TRUE) && rstudioapi::isAvailable()) {
+          base::tryCatch({ rstudioapi::executeCommand("interruptR") }, error = function(e) NULL)
+        }
+        
+        # Method B: The deep Base R silent abort. This completely halts the 
+        # frozen event loop and returns the `>` prompt.
+        base::tryCatch({ base::invokeRestart("abort") }, error = function(e) NULL)
+        
+      }, delay = 1)
+    }
+  }
+  
+  # ============================================================================
+  # 1. THE UI EXIT (When user clicks the Red Exit Button)
+  # ============================================================================
+  shiny::observeEvent(input$quit_app_btn, {
+    # Tell the browser to close itself (works in Chrome/Edge, grays out in RStudio)
+    shinyjs::runjs("setTimeout(function(){ window.close(); }, 200);") 
+    .force_console_return()
+  })
+  
+  # ============================================================================
+  # 2. THE WINDOW-CLOSE EXIT (When user clicks the Browser/RStudio 'X')
+  # ============================================================================
+  session$onSessionEnded(function() {
+    .force_console_return()
+  })
+  # ============================================================================
   
   rv <- shiny::reactiveValues(
     session_id = base::paste0("Run_", base::format(base::Sys.time(), "%Y%m%d_%H%M%S")),
@@ -228,7 +306,7 @@ server <- function(input, output, session) {
     resolution_warnings = base::list()
   )
   
-  step1_inputs <- base::c("output_dir_ui", "fm_pro_path_ui", "fm_nopro_path_ui", "toggle_handle_duplicates", "toggle_handle_nas", "toggle_handle_negatives", "toggle_handle_zerosum", "niter_input", "step_size_input", "toggle_fixed_seed", "fixed_seed_input", "toggle_geo_filter", "toggle_temporal_filter", "toggle_depth_filter", "min_lat_ui", "max_lat_ui", "min_lon_ui", "max_lon_ui", "min_depth_ui", "max_depth_ui", "start_date_ui", "end_date_ui")
+  step1_inputs <- base::c("output_dir_ui", "fm_pro_path_ui", "fm_nopro_path_ui", "toggle_custom_minmax", "minmax_file_selector", "toggle_handle_duplicates", "toggle_handle_nas", "toggle_handle_negatives", "toggle_handle_zerosum", "niter_input", "step_size_input", "toggle_fixed_seed", "fixed_seed_input", "toggle_geo_filter", "toggle_temporal_filter", "toggle_depth_filter", "min_lat_ui", "max_lat_ui", "min_lon_ui", "max_lon_ui", "min_depth_ui", "max_depth_ui", "start_date_ui", "end_date_ui")
   step5_inputs <- base::c("step5_strategy-normalization_method_input", "step5_strategy-transformation_method_input", "step5_strategy-cluster_method_input", "step5_strategy-k_max_input", "step5_strategy-k_determination_mode")
   
   .log_event <- function(category = "SYSTEM", message) {
@@ -240,11 +318,20 @@ server <- function(input, output, session) {
   shiny::observeEvent(input$main_navbar, { .log_event("NAV", base::paste("Switched tab to:", input$main_navbar)) }, ignoreInit = TRUE)
   shiny::observeEvent(input$last_btn_clicked, { .log_event("USER", base::paste("Clicked Button:", input$last_btn_clicked)) })
   
+  shiny::observe({
+    minmax_files <- base::list.files(path = "R/Reference_Tables", pattern = "^MinMax_.*\\.xlsx$", full.names = FALSE)
+    if (base::length(minmax_files) > 0) {
+      shiny::updateSelectInput(session, "minmax_file_selector", choices = minmax_files)
+    } else {
+      shiny::updateSelectInput(session, "minmax_file_selector", choices = "No MinMax files found in directory.")
+    }
+  })
+  
   base::lapply(step1_inputs, function(id) {
     shiny::observeEvent(input[[id]], {
       val <- input[[id]]; if(base::length(val) > 1) val <- base::paste0("(", base::length(val), " items)")
       .log_event("INPUT", base::paste0(id, " updated to: ", val))
-      if (id %in% base::c("fm_pro_path_ui", "fm_nopro_path_ui")) rv$fm_matrices <- NULL 
+      if (id %in% base::c("fm_pro_path_ui", "fm_nopro_path_ui", "toggle_custom_minmax", "minmax_file_selector")) rv$fm_matrices <- NULL 
       if (!base::is.null(rv$master_qc_data) || base::length(rv$datasets_processed) > 0) {
         .log_event("RESET", base::sprintf("Step 1 Settings modified. Wiping downstream to prevent corruption: %s", id))
         reset_downstream_data("qc"); .update_workflow_state("step2")
@@ -284,17 +371,10 @@ server <- function(input, output, session) {
   reset_downstream_data <- function(level = "all") {
     .log_event("SYSTEM", base::sprintf("Resetting data level: %s", level))
     if (level %in% base::c("all", "config")) { 
-      rv$staging_datasets <- base::list()
-      rv$mapping_history <- base::list()
-      rv$mapping_trigger <- rv$mapping_trigger + 1
-      rv$resolution_warnings <- base::list() 
+      rv$staging_datasets <- base::list(); rv$mapping_history <- base::list(); rv$mapping_trigger <- rv$mapping_trigger + 1; rv$resolution_warnings <- base::list() 
     }
     if (level %in% base::c("all", "config", "qc")) { 
-      rv$master_qc_data <- NULL
-      rv$analysis_datasets <- base::list()
-      rv$analyzed_datasets <- base::list()
-      rv$qc_summary_df <- NULL
-      rv$cluster_diagnostics <- NULL 
+      rv$master_qc_data <- NULL; rv$analysis_datasets <- base::list(); rv$analyzed_datasets <- base::list(); rv$qc_summary_df <- NULL; rv$cluster_diagnostics <- NULL 
     }
     if (level == "strategy") { rv$analysis_datasets <- base::list(); rv$analyzed_datasets <- base::list(); rv$cluster_diagnostics <- NULL }
     if (level == "analysis") { rv$analyzed_datasets <- base::list() }
@@ -367,19 +447,71 @@ server <- function(input, output, session) {
   shiny::observeEvent(input$load_data_btn, {
     shiny::req(input$hplc_data_files_input)
     reset_downstream_data("all"); .update_workflow_state("step2")
-    rv$datasets_processed <- load_all_files(input$hplc_data_files_input, rv$config, .log_event)
+    
+    # 1. Protect the application from fatal crashes inside 'load_all_files'
+    ingested_data <- base::tryCatch({
+      base::cat("--> Executing raw file parsing...\n")
+      load_all_files(input$hplc_data_files_input, rv$config, .log_event)
+    }, error = function(e) {
+      # Log the error to your system console
+      .log_event("FATAL_INGEST", base::paste("File loader crashed: ", e$message))
+      
+      # Show a clean, informative pop-up instead of a broken browser alert
+      shiny::showModal(shiny::modalDialog(
+        title = shiny::span(shiny::icon("exclamation-triangle", class="text-danger"), " File Ingestion Failed"),
+        shiny::p("The underlying Excel parser encountered a fatal format error and stopped."),
+        shiny::tags$code(style="color: #dc3545; background-color: #f8f9fa; padding: 5px; display: block; margin-top: 10px;", e$message),
+        easyClose = TRUE,
+        footer = shiny::modalButton("Close")
+      ))
+      return(base::list()) # Return an empty list to prevent downstream cascades
+    })
+    
+    rv$datasets_processed <- ingested_data
+    
     if(base::length(rv$datasets_processed) > 0) {
       rv$staging_datasets <- purrr::map(rv$datasets_processed, rlang::duplicate)
       rv$mapping_history <- base::list(); rv$mapping_trigger <- rv$mapping_trigger + 1
       .update_workflow_state("step3")
-    } else { shiny::showModal(shiny::modalDialog(title = "Ingestion Failure", "No usable matrices were extracted from the uploaded batch.")) }
+    } else { 
+      # Only show generic failure if an explicit crash dialog didn't already trigger
+      if (!base::any(base::grepl("FATAL_INGEST", rv$session_log))) {
+        shiny::showModal(shiny::modalDialog(title = "Ingestion Failure", "No usable matrices were extracted from the uploaded batch.")) 
+      }
+    }
   })
   
   output$batch_file_load_status_table <- DT::renderDT({
     shiny::req(base::length(rv$datasets_processed) > 0)
-    summary_df <- purrr::map_df(rv$datasets_processed, ~tibble::tibble(Name = .x$name, Rows = .x$log$initial_rows, Cols = .x$log$initial_cols))
-    DT::datatable(summary_df, options = base::list(pageLength = 10, searching=FALSE, lengthChange=FALSE), rownames=FALSE)
-  })
+    
+    # 1. Build a clean, vanilla base R data frame (eliminates tidyverse attribute pollution)
+    clean_rows <- base::list()
+    
+    for (i in base::seq_along(rv$datasets_processed)) {
+      .x <- rv$datasets_processed[[i]]
+      
+      fname <- if (!base::is.null(.x$name)) base::as.character(.x$name) else base::paste0("Dataset_", i)
+      rows  <- if (!base::is.null(.x$log$initial_rows)) base::as.character(.x$log$initial_rows) else "Unknown"
+      cols  <- if (!base::is.null(.x$log$initial_cols)) base::as.character(.x$log$initial_cols) else "Unknown"
+      
+      clean_rows[[i]] <- base::data.frame(
+        Name = fname,
+        Rows = rows,
+        Cols = cols,
+        stringsAsFactors = FALSE
+      )
+    }
+    
+    summary_df <- base::do.call(base::rbind, clean_rows)
+    
+    # 2. Return the data widget
+    DT::datatable(
+      summary_df, 
+      options = base::list(pageLength = 10, searching = FALSE, lengthChange = FALSE), 
+      rownames = FALSE
+    )
+    
+  }, server = FALSE) # <--- CRITICAL FIX: Forces client-side rendering to kill the AJAX JSON error
   
   validationServer("step3_validation", rv, .log_event, .update_workflow_state, session)
   qcServer("step4_qc", rv, .log_event, .update_workflow_state, reset_downstream_data)
@@ -388,12 +520,9 @@ server <- function(input, output, session) {
   
   output$analysis_params_review <- shiny::renderText({
     shiny::req(rv$config, rv$master_qc_data, rv$analysis_datasets)
-    
-    # Map the current inputs to the config temporarily just for the display update
     temp_config <- rv$config
     temp_config$phytoclass$use_fixed_seed <- input$toggle_fixed_seed
     temp_config$phytoclass$fixed_seed <- input$fixed_seed_input
-    
     generate_run_summary_text(temp_config, rv$master_qc_data, rv$analysis_datasets, rv$cluster_diagnostics)
   })
   
@@ -412,7 +541,6 @@ server <- function(input, output, session) {
     shinyjs::show("tracker_spinner_container")
     shinyjs::html("lbl_elapsed", "Time Elapsed: "); shinyjs::html("lbl_eta", "Est. Remaining: ")
     
-    # Ensure explicit syncing of the seed options into the reactive config right before processing begins
     rv$config$phytoclass$use_fixed_seed <- input$toggle_fixed_seed
     rv$config$phytoclass$fixed_seed <- input$fixed_seed_input
     
@@ -501,10 +629,7 @@ server <- function(input, output, session) {
       
       rv$config <- local_config
       if (base::exists("save_config") && base::is.function(save_config)) { 
-        base::tryCatch({ 
-          save_config(rv$config, CONFIG_SESSION_PATH) 
-          .log_event("CALIBRATION", base::sprintf("System learned from run #%d. Adjusted baseline factor: %.6g", total_historical_runs + 1, new_rolling_coefficient))
-        }, error = function(e) {}) 
+        base::tryCatch({ save_config(rv$config, CONFIG_SESSION_PATH) }, error = function(e) {}) 
       }
     }
     
@@ -512,8 +637,7 @@ server <- function(input, output, session) {
       checkpoint_dir <- rv$config$workspace$output_directory %||% "phytoclass_output"
       if (!base::dir.exists(checkpoint_dir)) base::dir.create(checkpoint_dir, recursive = TRUE)
       base::saveRDS(rv$analyzed_datasets, file = base::file.path(checkpoint_dir, "AUTOSAVE_LATEST_RUN.rds"))
-      .log_event("SYSTEM", "Data safely checkpointed to disk.")
-    }, error = function(e) { .log_event("WARNING", "Autosave checkpoint failed.") })
+    }, error = function(e) {})
     
     .update_workflow_state("step7")
     shinyjs::enable("run_phytoclass_btn")
@@ -522,11 +646,36 @@ server <- function(input, output, session) {
   output$phytoclass_batch_summary_table <- DT::renderDT({ 
     shiny::req(rv$analyzed_datasets)
     ds_with_log <- purrr::keep(rv$analyzed_datasets, ~!base::is.null(.x$log_analyzer))
-    if (base::length(ds_with_log) == 0) return(DT::datatable(tibble::tibble(Status="No analysis results available.")))
-    summary_df <- purrr::map_df(ds_with_log, ~tibble::tibble(Dataset = .x$name, Status = .x$log_analyzer$status %||% "N/A", `Fm Used` = .x$log_analyzer$fm_matrix_used %||% "N/A", `Seed Used` = .x$log_analyzer$seed_used %||% "N/A", `Mean RMSE` = base::round(.x$log_analyzer$mean_rmse %||% NA, 4), `Mean Cond Num` = base::round(.x$log_analyzer$mean_condnum %||% NA, 2), `Details` = .x$log_analyzer$error_details$message %||% ""))
-    DT::datatable(summary_df, rownames=FALSE, options = base::list(scrollX = TRUE)) |> DT::formatStyle("Status", backgroundColor = DT::styleEqual(base::c("Success", "Failed"), base::c("#d1e7dd", "#fff3cd"))) |> DT::formatStyle("Details", color = "#dc3545", fontSize = "0.9em")
-  })
+    
+    # 1. Safe baseline fallback if no runs have occurred yet
+    if (base::length(ds_with_log) == 0) {
+      return(DT::datatable(
+        base::data.frame(Status = "No analysis results available.", stringsAsFactors = FALSE), 
+        rownames = FALSE, 
+        options = base::list(searching = FALSE, lengthChange = FALSE)
+      ))
+    }
+    
+    # 2. Force strict atomic data types to prevent serialization issues
+    summary_df <- purrr::map_df(ds_with_log, ~tibble::tibble(
+      Dataset = base::as.character(.x$name %||% "Unknown"), 
+      Status = base::as.character(.x$log_analyzer$status %||% "N/A"), 
+      `Fm Used` = base::as.character(.x$log_analyzer$fm_matrix_used %||% "N/A"), 
+      `Seed Used` = base::as.character(.x$log_analyzer$seed_used %||% "N/A"), 
+      `Mean RMSE` = base::round(base::as.numeric(.x$log_analyzer$mean_rmse %||% NA), 4), 
+      `Mean Cond Num` = base::round(base::as.numeric(.x$log_analyzer$mean_condnum %||% NA), 2), 
+      `Details` = base::as.character(.x$log_analyzer$error_details$message %||% "")
+    ))
+    
+    DT::datatable(summary_df, rownames = FALSE, options = base::list(scrollX = TRUE)) |> 
+      DT::formatStyle("Status", backgroundColor = DT::styleEqual(base::c("Success", "Failed"), base::c("#d1e7dd", "#fff3cd"))) |> 
+      DT::formatStyle("Details", color = "#dc3545", fontSize = "0.9em")
+    
+  }, server = FALSE) 
   
+  # =========================================================================
+  # --- HELP MANUAL ---
+  # =========================================================================
   # =========================================================================
   # --- DIRECT EXPLICIT HELP MANUAL (ROBUST SANITIZED FOR SWITCH PARSING) ---
   # =========================================================================
@@ -545,18 +694,29 @@ server <- function(input, output, session) {
     content_step1 <- shiny::tagList(
       shiny::h4("Step 1: Setup Parameters"), 
       shiny::p("Configure file paths, algorithm settings, and data cleaning rules."), 
+      
       shiny::div(class="help-section-title", "1. Saved Sessions & Matrix Files"), 
       shiny::tags$ul(
         shiny::tags$li(btn_prim("Load Last Session", "folder-open"), ": Restores settings and inputs from your previous session."), 
         shiny::tags$li(ui_in("Fm_Pro / Fm_NoPro Path"), ": Specify the file paths for the reference matrices required for calculation."),
         shiny::tags$li(btn_prim("Check Matrix Files", "check-double"), ": Verifies that the application can read your reference files.")
       ), 
-      shiny::div(class="help-section-title", "2. Algorithm Settings"), 
+      
+      shiny::div(class="help-section-title", "2. Algorithm Settings (Simulated Annealing)"), 
       shiny::tags$ul(
-        shiny::tags$li(ui_in("Iterations"), " & ", ui_in("Cooling Step Size"), ": Controls the optimization algorithm. Higher iterations and smaller steps increase accuracy but take longer. Leave as default unless required."),
+        shiny::tags$li(ui_in("Iterations"), " & ", ui_in("Cooling Step Size"), ": Unlike steepest-descent, Simulated Annealing 'heats' the system to explore many ratio possibilities. Higher iterations (e.g., 500) and smaller steps (e.g., 0.009) increase accuracy but take longer."),
         shiny::tags$li(ui_in("Use Fixed Random Seed"), ": Forces the algorithm to take the exact same randomized mathematical route every run to guarantee 1-to-1 strict decimal reproducibility.")
       ), 
-      shiny::div(class="help-section-title", "3. Cleaning Rules & Filters"), 
+      
+      shiny::div(class="help-section-title", "3. Min/Max Profiles (Algorithm Constraints)"), 
+      shiny::p("By default, the app uses broad internal ratios. Custom Min/Max profiles force the algorithm to search within biologically realistic bounds for your specific study region."),
+      shiny::tags$ul(
+        shiny::tags$li(shiny::strong("Formatting Rules:"), " Create an Excel file in the ", shiny::code("R/Reference_Tables/"), " folder starting with 'MinMax_'. It MUST contain exactly four columns: ", shiny::code("Class"), ", ", shiny::code("Pig_Abbrev"), ", ", shiny::code("min"), ", and ", shiny::code("max"), "."),
+        shiny::tags$li(shiny::strong("Matrix Syncing:"), " If a pigment exists in your active Fm reference matrix for a specific class, you MUST provide a min/max rule for it in this file, or the algorithm will reject it to prevent mathematical runaway."),
+        shiny::tags$li(ui_tog("Use Region-Specific Min/Max Bounds"), ": Check this box to select and apply your custom profile.")
+      ),
+      
+      shiny::div(class="help-section-title", "4. Cleaning Rules & Filters"), 
       shiny::tags$ul(
         shiny::tags$li(ui_tog("Cleaning Options"), ": Automatically fixes formatting issues, such as converting blank cells to 0 and dropping empty rows."), 
         shiny::tags$li(ui_tog("Data Filters"), ": Removes samples that fall outside your specified location, date, or depth parameters.")
@@ -567,8 +727,8 @@ server <- function(input, output, session) {
       shiny::h4("Step 2: Import Data"),
       shiny::p("Upload raw HPLC pigment data for analysis."),
       shiny::tags$ul(
-        shiny::tags$li(ui_in("Select Files"), ": Choose one or multiple .xlsx files from your computer."),
-        shiny::tags$li(btn_prim("Load Data Files", "play"), ": Imports the selected files. Invalid or empty files will be flagged and skipped.")
+        shiny::tags$li(ui_in("Select Files"), ": Choose one or multiple .xlsx files from your computer. The app will automatically merge them into the staging pipeline."),
+        shiny::tags$li(btn_prim("Load Data Files", "play"), ": Imports the selected files. Invalid or completely empty files will be safely flagged and skipped.")
       )
     )
     
@@ -576,48 +736,48 @@ server <- function(input, output, session) {
       shiny::h4("Step 3: Map Variables"),
       shiny::p("Match your uploaded column names to the standard pigment names required by the algorithm."),
       shiny::tags$ul(
-        shiny::tags$li(shiny::span(class="badge bg-warning text-dark", "NEEDS MAPPING"), ": Click rows with this warning to assign column headers."),
-        shiny::tags$li(shiny::strong("Mandatory:"), " You must map 'Tchla' (Total Chlorophyll a). Leave missing pigments unmapped; the application will treat them as 0."),
-        shiny::tags$li(btn_succ("Save Mappings", "check-double"), ": Saves your column assignments and unlocks Step 4.")
+        shiny::tags$li(shiny::span(class="badge bg-warning text-dark", "NEEDS MAPPING"), ": Click rows with this warning to open the mapping wizard."),
+        shiny::tags$li(shiny::strong("Mandatory:"), " You must map 'Tchla' (Total Chlorophyll a). Leave missing/uncollected pigments unmapped; the application will safely treat them as 0 during calculation."),
+        shiny::tags$li(btn_succ("Save Mappings", "check-double"), ": Locks in your column assignments and unlocks Step 4.")
       )
     )
     
     content_step4 <- shiny::tagList(
       shiny::h4("Step 4: Filter & Clean"),
-      shiny::p("Automatically process your data using the rules configured in Step 1."),
+      shiny::p("Automatically process your data using the Quality Control rules configured in Step 1."),
       shiny::tags$ul(
         shiny::tags$li(btn_prim("Clean My Data", "shield-alt"), ": Removes duplicates, fixes blank values, and applies depth/date/location filters."),
-        shiny::tags$li(shiny::strong("File Breakdown:"), " Displays exactly how many samples were removed per file and the reason for removal.")
+        shiny::tags$li(shiny::strong("File Breakdown:"), " Displays exactly how many samples were removed per file and the specific mathematical or environmental reason for removal.")
       )
     )
     
     content_step5 <- shiny::tagList(
       shiny::h4("Step 5: Group Samples"),
-      shiny::p("Define how samples are grouped before processing."),
+      shiny::p("Define how samples are grouped before the optimization engine processes them."),
       shiny::tags$ul(
-        shiny::tags$li(ui_tog("By Source File"), ": Analyzes each uploaded file separately."),
-        shiny::tags$li(ui_tog("By Pigment Cluster"), ": Combines all files and groups samples strictly by pigment similarity."),
-        shiny::tags$li(btn_prim("Preview Groups", "play"), ": Displays how the data will be divided, generating cluster graphs if applicable."),
-        shiny::tags$li(btn_succ("Lock in Strategy", "check-double"), ": Saves your grouping choice and unlocks Step 6.")
+        shiny::tags$li(ui_tog("By Source File"), ": Analyzes each uploaded file as its own distinct mathematical batch."),
+        shiny::tags$li(ui_tog("By Pigment Cluster"), ": Recommended. Chemometrically pools samples across all files with similar pigment-to-TChla signatures, reducing bias in the algorithm."),
+        shiny::tags$li(btn_prim("Preview Groups", "play"), ": Displays how the data will be divided, generating cluster graphs and dendrograms if clustering is active."),
+        shiny::tags$li(btn_succ("Lock in Strategy", "check-double"), ": Saves your grouping choice and builds the arrays for Step 6.")
       )
     )
     
     content_step6 <- shiny::tagList(
       shiny::h4("Step 6: Run Analysis"),
-      shiny::p("Execute the mathematical optimization to calculate phytoplankton communities."),
+      shiny::p("Execute the Simulated Annealing mathematical optimization to calculate phytoplankton communities."),
       shiny::tags$ul(
-        shiny::tags$li(ui_in("Select Data to Run"), ": Choose which specific groups to process."),
-        shiny::tags$li(btn_prim("Start Analysis", "rocket"), ": Begins the calculation. A live dashboard tracks progress and estimated completion time."),
+        shiny::tags$li(ui_in("Select Data to Run"), ": Choose which specific sample groups to process in this batch."),
+        shiny::tags$li(btn_prim("Start Analysis", "rocket"), ": Begins the calculation. A live dashboard tracks batch progress and estimated completion times."),
       )
     )
     
     content_step7 <- shiny::tagList(
       shiny::h4("Step 7: View & Export"),
-      shiny::p("Review performance metrics and export the final calculated data."),
+      shiny::p("Review final performance metrics and export the calculated abundance data."),
       shiny::tags$ul(
-        shiny::tags$li(shiny::strong("RMSE / Condition Number:"), " Diagnostic scores for the mathematical calculation. Lower numbers indicate better mathematical confidence."),
-        shiny::tags$li(shiny::strong("View Graphs:"), " Select a group from the dropdown to see its specific community composition charts."),
-        shiny::tags$li(btn_succ("Save Results to Computer", "download"), ": Creates a directory on your computer containing the final Excel data, graphs, and run settings.")
+        shiny::tags$li(shiny::strong("RMSE & Condition Number:"), " Diagnostic scores indicating mathematical confidence. Lower numbers represent better model fits."),
+        shiny::tags$li(shiny::strong("View Graphs:"), " Select a processed group from the dropdown to interact with its relative and absolute community composition charts."),
+        shiny::tags$li(btn_succ("Save Results to Computer", "download"), ": Creates a fully localized master report directory containing raw matrix outputs, plots, and a consolidated Excel workbook.")
       )
     )
     
@@ -632,7 +792,7 @@ server <- function(input, output, session) {
                                      content_step1)
     
     shiny::showModal(shiny::modalDialog(
-      title = shiny::div(shiny::icon("book-open"), base::paste(" Guidelines - Tab Details")), 
+      title = shiny::div(shiny::icon("book-open"), " Guidelines - ", shiny::strong(base::toupper(current_tab))), 
       size = "l", 
       easyClose = TRUE, 
       help_styles, 

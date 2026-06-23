@@ -85,6 +85,9 @@ validationServer <- function(id, rv, .log_event, .update_workflow_state, session
         )
     })
     
+    # ============================================================================
+    # FIXED: APPLIED SERVER = FALSE TO PREVENT AJAX DATA JSON ERRORS
+    # ============================================================================
     output$mapping_validation_summary_table <- DT::renderDT({
       shiny::req(mapping_summary())
       df_for_display <- mapping_summary()[, base::c("Dataset", "Mapping Health", "Missing_Count", "Missing_str")]
@@ -93,7 +96,8 @@ validationServer <- function(id, rv, .log_event, .update_workflow_state, session
       DT::datatable(df_for_display, options = base::list(pageLength = 15, searching = FALSE, autoWidth = TRUE, columnDefs = base::list(base::list(className = 'dt-center', targets = 2)), order = base::list(base::list(1, 'asc'), base::list(2, 'desc'))), rownames = FALSE, selection = 'single', class = "cell-border stripe hover compact") |>
         DT::formatStyle("Status", backgroundColor = DT::styleEqual(base::c("OK", "NEEDS MAPPING"), base::c("#d1e7dd", "#fff3cd"))) |>
         DT::formatStyle("Missing Count", fontWeight = "bold")
-    })
+    }, server = FALSE) # <--- THE CRITICAL FIX IS HERE
+    # ============================================================================
     
     shiny::observeEvent(input$mapping_validation_summary_table_rows_selected, {
       shiny::req(mapping_summary())

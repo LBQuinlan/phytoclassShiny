@@ -1,7 +1,7 @@
 # ============================================================================
 # MODULE: Step 7 - Results & Reporting
 # Description: The final dashboard. Hardened against OS-level file locks
-# and reactive memory leaks.
+# and reactive memory leaks. Includes comprehensive parameter logging.
 # ============================================================================
 
 reportingUI <- function(id) {
@@ -228,47 +228,72 @@ reportingServer <- function(id, rv, .log_event) {
         if (!base::dir.exists(plots_output_dir)) base::dir.create(plots_output_dir)
         
         wb_master <- openxlsx::createWorkbook()
-        openxlsx::addWorksheet(wb_master, "Session Info")
+        openxlsx::addWorksheet(wb_master, "Session Parameters")
         
-        .safe_char <- function(x) {
-          if (base::is.null(x) || base::length(x) == 0) return("N/A")
-          return(base::as.character(x[1]))
-        }
+        # --- NEW: COMPREHENSIVE & CATEGORIZED PARAMETER EXTRACTION ---
+        .safe_char <- function(x) { if (base::is.null(x) || base::length(x) == 0) return("N/A"); return(base::as.character(x[1])) }
+        .fmt_bool <- function(x) if (base::isTRUE(base::as.logical(x))) "Enabled" else "Disabled"
         
         method_raw <- rv$config$strategy$method %||% "hclust"
-        seed_used <- if (base::isTRUE(base::as.logical(rv$config$phytoclass$use_fixed_seed))) .safe_char(rv$config$phytoclass$fixed_seed) else "Unconstrained"
+        seed_used <- if (base::isTRUE(base::as.logical(rv$config$phytoclass$use_fixed_seed))) .safe_char(rv$config$phytoclass$fixed_seed) else "Unconstrained (Stochastic)"
         cluster_k_auto <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$optimal_k else "N/A"
         cluster_k_used <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$used_k else "N/A"
         cluster_algo <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$algorithm else "N/A"
         dist_metric <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$distance else "N/A"
         transform_metric <- if(!base::is.null(rv$cluster_diagnostics)) rv$cluster_diagnostics$info$transform else "N/A"
         
+        geo_bounds <- if(base::isTRUE(rv$config$filtering$geospatial$enabled)) base::sprintf("Lat: [%s to %s], Lon: [%s to %s]", rv$config$filtering$geospatial$min_latitude, rv$config$filtering$geospatial$max_latitude, rv$config$filtering$geospatial$min_longitude, rv$config$filtering$geospatial$max_longitude) else "Disabled"
+        date_bounds <- if(base::isTRUE(rv$config$filtering$temporal$enabled)) base::sprintf("[%s to %s]", rv$config$filtering$temporal$start_date, rv$config$filtering$temporal$end_date) else "Disabled"
+        depth_bounds <- if(base::isTRUE(rv$config$filtering$depth$enabled)) base::sprintf("[%s m to %s m]", rv$config$filtering$depth$min_depth, rv$config$filtering$depth$max_depth) else "Disabled"
+        mm_status <- if(base::isTRUE(rv$config$phytoclass$use_custom_minmax)) base::paste("Custom Config:", rv$config$phytoclass$selected_minmax_file) else "Default (Phytoclass Internal Boundaries)"
+        
         session_info <- base::data.frame(
-          Parameter = base::c("Session ID", "Date", "Niter Cycles", "Cooling Decay Rate", "Random Seed", "Grouping Paradigm", "Transformation", "Distance Metric", "Cluster Algorithm", "Optimum K Target", "Realized K Grouping"),
-          Value = base::c(
-            .safe_char(rv$session_id),
-            .safe_char(base::Sys.Date()),
-            .safe_char(rv$config$phytoclass$niter),
-            .safe_char(rv$config$phytoclass$step_size),
-            seed_used,
-            .safe_char(method_raw),
-            .safe_char(transform_metric),
-            .safe_char(dist_metric),
-            .safe_char(cluster_algo),
-            .safe_char(cluster_k_auto),
-            .safe_char(cluster_k_used)
+          Parameter_Category = base::c(
+            "--- 1. SYSTEM & EXPORT ---", 
+            "Session ID", "Export Date/Time",
+            "--- 2. ALGORITHM SETTINGS ---", 
+            "Iterations (Niter)", "Cooling Step Size", "Random Seed Mode", "Min/Max Boundaries", "Fm_Pro Reference Map", "Fm_NoPro Reference Map",
+            "--- 3. DATA QC RULES ---", 
+            "Remove Duplicate Samples", "Convert Blank Pigments to 0", "Convert Negatives to 0", "Remove Empty Samples (Zero-Sum)",
+            "--- 4. DATA FILTERS ---", 
+            "Geospatial Filter", "Date Filter", "Depth Filter",
+            "--- 5. GROUPING & CLUSTERING ---", 
+            "Grouping Strategy", "Normalization", "Transformation", "Distance Metric", "Cluster Algorithm", "Auto-K Method", "Target K Used"
+          ),
+          Value_Applied = base::c(
+            "", .safe_char(rv$session_id), .safe_char(base::format(base::Sys.time(), "%Y-%m-%d %H:%M:%S")),
+            "", .safe_char(rv$config$phytoclass$niter), .safe_char(rv$config$phytoclass$step_size), seed_used, mm_status, .safe_char(rv$config$workspace$fm_pro_matrix_path), .safe_char(rv$config$workspace$fm_nopro_matrix_path),
+            "", .fmt_bool(rv$config$data_cleaning$handle_duplicates$enabled), .fmt_bool(rv$config$data_cleaning$handle_pigment_nas$enabled), .fmt_bool(rv$config$data_cleaning$enforce_non_negative_pigments$enabled), .fmt_bool(rv$config$data_cleaning$handle_zero_pigment_sum$enabled),
+            "", geo_bounds, date_bounds, depth_bounds,
+            "", .safe_char(method_raw), .safe_char(rv$config$clustering$normalization_method %||% "N/A"), .safe_char(transform_metric), .safe_char(dist_metric), .safe_char(cluster_algo), .safe_char(cluster_k_auto), .safe_char(cluster_k_used)
           )
         )
-        openxlsx::writeData(wb_master, "Session Info", session_info)
         
+        openxlsx::writeData(wb_master, "Session Parameters", session_info)
+        
+        # 1. Formatting the Parameter Sheet to look clean
+        openxlsx::setColWidths(wb_master, "Session Parameters", cols = 1:2, widths = base::c(35, 60))
+        header_style <- openxlsx::createStyle(textDecoration = "bold", fgFill = "#D9E1F2", border = "Bottom")
+        openxlsx::addStyle(wb_master, "Session Parameters", header_style, rows = 1, cols = 1:2)
+        
+        # Highlight the category headers dynamically
+        cat_rows <- base::which(base::startsWith(base::as.character(session_info$Parameter_Category), "---")) + 1
+        cat_style <- openxlsx::createStyle(textDecoration = "bold", fontColour = "#0056b3")
+        for (r in cat_rows) { openxlsx::addStyle(wb_master, "Session Parameters", cat_style, rows = r, cols = 1) }
+        
+        # --- KEEP: QC Statistics Breakdown ---
         if (!base::is.null(rv$qc_summary_df)) { 
           openxlsx::addWorksheet(wb_master, "QC Statistics")
           openxlsx::writeData(wb_master, "QC Statistics", rv$qc_summary_df) 
+          openxlsx::addStyle(wb_master, "QC Statistics", header_style, rows = 1, cols = 1:base::ncol(rv$qc_summary_df))
+          openxlsx::setColWidths(wb_master, "QC Statistics", cols = 1:base::ncol(rv$qc_summary_df), widths = "auto")
         }
         
-        log_df <- base::data.frame(Timestamped_Log = rv$session_log)
+        # --- KEEP: Session Audit Log Terminal Trace ---
+        log_df <- base::data.frame(`Terminal Trace Output` = rv$session_log)
         openxlsx::addWorksheet(wb_master, "Session Log")
         openxlsx::writeData(wb_master, "Session Log", log_df)
+        openxlsx::setColWidths(wb_master, "Session Log", cols = 1, widths = 100)
         
         unified_results <- base::list()
         for(ds_name in base::names(rv$analyzed_datasets)) {
@@ -289,9 +314,10 @@ reportingServer <- function(id, rv, .log_event) {
           global_df <- dplyr::bind_rows(unified_results)
           openxlsx::addWorksheet(wb_master, "All Samples Combined")
           openxlsx::writeData(wb_master, "All Samples Combined", global_df)
+          openxlsx::addStyle(wb_master, "All Samples Combined", header_style, rows = 1, cols = 1:base::ncol(global_df))
         }
         
-        openxlsx::saveWorkbook(wb_master, file = base::file.path(session_output_dir, "PhytoClass_Master_Report.xlsx"), overwrite = TRUE)
+        openxlsx::saveWorkbook(wb_master, file = base::file.path(session_output_dir, "phytoclassShiny_Combined_Report.xlsx"), overwrite = TRUE)
         if (base::exists("save_config") && base::is.function(save_config)) save_config(rv$config, base::file.path(session_output_dir, "config_session.yaml"))
         
         if (!base::is.null(rv$cluster_diagnostics)) {
@@ -309,7 +335,7 @@ reportingServer <- function(id, rv, .log_event) {
             base::colnames(clean_output) <- base::make.names(.clean_names(base::colnames(clean_output)), unique = TRUE)
             if("UniqueID" %in% base::names(clean_output)) clean_output <- clean_output |> dplyr::select(UniqueID, dplyr::everything())
             
-            # --- NEW: BUNDLING EVERYTHING INTO ONE MULTI-SHEET EXCEL FILE ---
+            # --- BUNDLING EVERYTHING INTO ONE MULTI-SHEET EXCEL FILE ---
             wb_sheets <- base::list("Community Estimates" = clean_output)
             
             if (!base::is.null(ds$f_matrix_final)) {
