@@ -1,10 +1,10 @@
 # ============================================================================
-# 00_Setup_Phytoclass.R (One-Time Initialization Script)
+# 00_Setup_phytoclassShiny.R (Initialization Script)
 # ============================================================================
 FORCE_UPDATE_PACKAGES <- FALSE
 base::options(repos = base::c(CRAN = "https://cloud.r-project.org/"))
 
-# 0. UNIVERSAL PATH DETECTOR (Stealth Mode to prevent RStudio Popups)
+# 0. PATH DETECTOR
 base::tryCatch({
   current_path <- NULL
   rs_pkg <- base::paste0("rstudio", "api")
@@ -30,34 +30,33 @@ base::tryCatch({
   }
 }, error = function(e) NULL)
 
-# 1. PRIMARY R VERSION GATE & UAC FIX
+# 1. R VERSION CHECK
 current_r_numeric <- base::paste(base::R.version$major, base::R.version$minor, sep = ".")
 
 if (base::package_version(current_r_numeric) < base::package_version("4.4.0")) {
-  base::cat("\n[!] CRITICAL: Your core R software is out of date!\n")
+  base::cat("\n[!] CRITICAL: Outdated R version detected.\n")
   if (.Platform$OS.type == "windows") {
-    base::cat("\n*** IMPORTANT WINDOWS NOTICE ***\n")
-    base::cat("The R installer will now open. Please look for a flashing shield icon\n")
-    base::cat("on your Windows taskbar. You MUST click it to grant Administrator access!\n")
-    base::cat("********************************\n\n")
+    base::cat("\n*** WINDOWS UPGRADE INITIATED ***\n")
+    base::cat("Look for the flashing shield icon on your taskbar and grant Admin access.\n")
+    base::cat("*********************************\n\n")
     
     utils::install.packages("installr")
     installr::updateR(browse_to_download_page = FALSE, silent = FALSE)
-    base::stop("R upgrade initiated. Please restart after the wizard finishes.")
+    base::stop("R upgrade initiated. Restart setup after completion.")
   } else {
-    base::cat("Please visit https://cran.r-project.org/ to download the latest version of R.\n")
-    base::stop("Launch aborted due to outdated R version.")
+    base::cat("Visit https://cran.r-project.org/ to download the latest R version.\n")
+    base::stop("Launch aborted: Outdated environment.")
   }
 }
 
 base::cat("\n--- Running Setup & Generating Audit Log ---\n")
 
-# 2. STRICT SANDBOXING (Locking out the user's default system library)
+# 2. SANDBOX INITIALIZATION
 app_lib <- base::file.path(base::getwd(), "app_packages")
 if (!base::dir.exists(app_lib)) { base::dir.create(app_lib, recursive = TRUE) }
 base::.libPaths(base::c(app_lib, base::.Library))
 
-# 3. UNCONDITIONAL RAM PURGE (Expanded to include hidden rendering engines)
+# 3. NAMESPACE PURGE
 conflict_prone_packages <- base::c(
   "shinybusy", "shinyWidgets", "shinyjs", "DT", "htmlwidgets",
   "bslib", "promises", "htmltools", "jsonlite", "shiny", "rlang"
@@ -69,7 +68,7 @@ for (ns in conflict_prone_packages) {
   }
 }
 
-# 4. PACKAGE LIST & OS-AGNOSTIC INSTALL (Added jsonlite and htmlwidgets)
+# 4. DEPENDENCY MANIFEST
 required_packages <- base::list(
   "shiny" = "1.10.0", "bslib" = "0.9.0", "shinyjs" = "2.1.0", 
   "shinyWidgets" = "0.9.0", "DT" = "0.33", "htmlwidgets" = "1.6.4",
@@ -83,10 +82,9 @@ required_packages <- base::list(
   "phytoclass" = "2.3.1", "shinybusy" = "0.3.3", "tidyselect" = "1.2.1"
 )
 
-# --- 5. INITIAL AUDIT & ENVIRONMENT CHECK ---
+# 5. ENVIRONMENT AUDIT
 installed_pkgs_before <- utils::installed.packages(lib.loc = app_lib)
 installed_versions_before <- if (base::nrow(installed_pkgs_before) > 0) {
-  # FIX: Correctly mapped to the 'stats' library instead of 'base'
   stats::setNames(installed_pkgs_before[, "Version"], installed_pkgs_before[, "Package"])
 } else {
   base::character(0)
@@ -98,7 +96,7 @@ lib_write_access <- base::ifelse(base::file.access(app_lib, 2) == 0, "GRANTED", 
 
 log_lines <- base::c(
   "==========================================================================",
-  "                      PHYTOCLASS SETUP AUDIT LOG                          ",
+  "                 PHYTOCLASSSHINY SETUP AUDIT LOG                          ",
   "==========================================================================",
   base::paste("Timestamp:     ", base::Sys.time()),
   base::paste("R Version:     ", base::R.version.string),
@@ -106,7 +104,7 @@ log_lines <- base::c(
   base::paste("Current User:  ", current_user),
   "--------------------------------------------------------------------------",
   "ENVIRONMENT DIAGNOSTICS:",
-  base::paste("App Folder:    ", base::getwd()),
+  base::paste("App Folder:    ", base::dirname(base::getwd())),
   base::paste(" -> App Write: ", app_write_access),
   base::paste("Local Library: ", app_lib),
   base::paste(" -> Lib Write: ", lib_write_access),
@@ -116,7 +114,7 @@ log_lines <- base::c(
   "--------------------------------------------------------------------------"
 )
 
-# --- 6. INSTALLATION LOOP WITH DEEP LOGGING ---
+# 6. INSTALLATION EXECUTION
 for (pkg in base::names(required_packages)) {
   target_ver <- required_packages[[pkg]]
   pre_ver <- if (pkg %in% base::names(installed_versions_before)) installed_versions_before[[pkg]] else "None"
@@ -142,7 +140,6 @@ for (pkg in base::names(required_packages)) {
       utils::install.packages(pkg, lib = app_lib, dependencies = TRUE)
       outcome_label <- "SUCCESS"
     }, error = function(e) {
-      # Check if the failure is due to a classic Windows file lock
       if (base::grepl("permission denied|cannot open file|lazy-load", e$message, ignore.case = TRUE) && .Platform$OS.type == "windows") {
         outcome_label <- "FAILED: File locked by Windows"
         base::cat(base::sprintf("   [!] OS LOCK DETECTED: Windows is blocking modifications to '%s'.\n", pkg))
@@ -156,10 +153,9 @@ for (pkg in base::names(required_packages)) {
   log_lines <- base::c(log_lines, base::sprintf("%-20s | %-12s | %-12s | %-15s | %-10s", pkg, target_ver, pre_ver, action_label, outcome_label))
 }
 
-# --- 7. FINAL INTEGRITY CHECK ---
+# 7. INTEGRITY VERIFICATION
 installed_pkgs_after <- utils::installed.packages(lib.loc = app_lib)
 installed_versions_after <- if (base::nrow(installed_pkgs_after) > 0) {
-  # FIX: Correctly mapped to the 'stats' library instead of 'base'
   stats::setNames(installed_pkgs_after[, "Version"], installed_pkgs_after[, "Package"])
 } else {
   base::character(0)
@@ -184,13 +180,57 @@ for (pkg in base::names(required_packages)) {
 log_lines <- base::c(log_lines, "==========================================================================")
 base::writeLines(log_lines, "phytoclassShiny_launch_log.txt")
 
-# Terminal Output to the user
+# 8. WORKSPACE CONFIGURATION (.Rprofile & .Rproj)
+base::cat("\n--- Configuring Isolated Workspace ---\n")
+
+root_dir <- base::dirname(base::getwd())
+
+rprofile_path <- base::file.path(root_dir, ".Rprofile")
+rprofile_content <- base::c(
+  "# ==========================================================================",
+  "# AUTOMATICALLY GENERATED BY PHYTOCLASSSHINY SETUP",
+  "# ==========================================================================",
+  "Sys.setenv(PHYTOCLASSSHINY_SANDBOX_ACTIVE = 'TRUE')",
+  ".libPaths(base::file.path(base::getwd(), 'system', 'app_packages'))",
+  "base::cat('\\n[✓] phytoclassShiny Sandbox Active\\n')",
+  "",
+  "if (interactive() && base::requireNamespace('rstudioapi', quietly = TRUE)) {",
+  "  if (rstudioapi::isAvailable()) {",
+  "    rstudioapi::navigateToFile('app.R')",
+  "    base::cat('\\n[>] app.R loaded. Click \\'Run App\\' in the top right of the editor to start.\\n\\n')",
+  "  }",
+  "}"
+)
+base::writeLines(rprofile_content, rprofile_path)
+base::cat(" [OK] Security sandbox (.Rprofile) generated successfully.\n")
+
+rproj_files <- base::list.files(path = root_dir, pattern = "\\.Rproj$")
+if (base::length(rproj_files) == 0) {
+  rproj_path <- base::file.path(root_dir, "phytoclassShiny.Rproj")
+  rproj_content <- base::c(
+    "Version: 1.0",
+    "",
+    "RestoreWorkspace: No",
+    "SaveWorkspace: No",
+    "AlwaysSaveHistory: No",
+    "",
+    "EnableCodeIndexing: Yes",
+    "UseSpacesForTab: Yes",
+    "NumSpacesForTab: 2",
+    "Encoding: UTF-8"
+  )
+  base::writeLines(rproj_content, rproj_path)
+  base::cat(" [OK] RStudio Project file (phytoclassShiny.Rproj) created.\n")
+} else {
+  base::cat(base::sprintf(" [OK] Existing project file found: %s\n", rproj_files[1]))
+}
+
 if (base::length(missing_or_outdated) > 0) {
-  base::cat("\n[!] SETUP INCOMPLETE: Some packages failed to install. Check 'phytoclassShiny_launch_log.txt' for details.\n")
+  base::cat("\n[!] SETUP INCOMPLETE: Packages failed to install. Check 'system/phytoclassShiny_launch_log.txt'.\n")
 } else {
   base::cat("\n=======================================================\n")
   base::cat(" [OK] SETUP COMPLETE! Environment is perfectly configured.\n")
   base::cat("=======================================================\n")
-  base::cat(" You may now close this window. To open the app, simply\n")
-  base::cat(" double-click the 'app.R' file and click 'Run App'.\n\n")
+  base::cat(" To open the app, double-click 'LAUNCH_PHYTOCLASSSHINY.bat'\n")
+  base::cat(" or open 'phytoclassShiny.Rproj' in RStudio.\n\n")
 }

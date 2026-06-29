@@ -1,48 +1,47 @@
 # ============================================================================
-#
-#   _phytoclass_Shiny V1.0 - MAIN APPLICATION LAUNCHER
-#
-#   Description:
-#   Main Driver. Hardened state management, continuous machine-learning 
-#   ETA calibration, and streamlined operational manuals.
-#  
+# 0. LAUNCH VERIFICATION
 # ============================================================================
-
-# --- 0. PREAMBLE & INITIAL SETUP ---
-base::cat("--- Initializing _phytoclass_Shiny V1.0 ---\n")
-base::options(shiny.maxRequestSize = 500 * 1024^2)
-
-# ============================================================================
-# 1. CONDITIONAL SANDBOXING (Use local library if present)
-# ============================================================================
-app_lib <- base::file.path(base::getwd(), "app_packages")
-
-if (base::dir.exists(app_lib)) {
-  base::cat("--> Local sandbox 'app_packages' found. Activating isolated environment...\n")
-  base::.libPaths(base::c(app_lib, base::.Library))
-} else {
-  base::cat("--> No local sandbox found. Defaulting to standard system R library...\n")
+if (base::Sys.getenv("PHYTOCLASSSHINY_SANDBOX_ACTIVE") != "TRUE") {
+  base::stop(
+    "\n====================================================================\n",
+    "[!] CRITICAL LAUNCH ERROR: Sandbox violation detected.\n",
+    "====================================================================\n",
+    "Please launch using 'LAUNCH_PHYTOCLASSSHINY.bat' or open the\n",
+    "'phytoclassShiny.Rproj' project file before running app.R.\n",
+    "====================================================================\n"
+  )
 }
 
 # ============================================================================
-# 2. DEFENSIVE RAM PURGE (Updated)
+#
+#   phytoclassShiny V1.0 - MAIN APPLICATION LAUNCHER
+#  
 # ============================================================================
-# Strictly target UI extensions. Do NOT include core execution packages 
-# like 'shiny', 'rlang', or 'promises' as they are required for the active run loop.
-conflict_prone_packages <- base::c(
-  "shinybusy", "shinyWidgets", "shinyjs", "DT", "bslib"
-)
+
+# --- PREAMBLE ---
+base::cat("--- Initializing phytoclassShiny V1.0 ---\n")
+base::options(shiny.maxRequestSize = 500 * 1024^2)
+
+# --- 1. LIBRARY PATH RESOLUTION ---
+app_lib <- base::file.path(base::getwd(), "system", "app_packages")
+
+if (base::dir.exists(app_lib)) {
+  base::cat("--> Sandbox located. Restricting environment variables...\n")
+  base::.libPaths(app_lib)
+} else {
+  base::cat("--> Sandbox not found. Defaulting to system library.\n")
+}
+
+# --- 2. NAMESPACE CLEARANCE ---
+conflict_prone_packages <- base::c("shinybusy", "shinyWidgets", "shinyjs", "DT", "bslib")
 for (ns in conflict_prone_packages) {
   if (ns %in% base::loadedNamespaces()) {
     base::tryCatch({ base::detach(base::paste0("package:", ns), unload = TRUE, character.only = TRUE) }, error = function(e) NULL)
     base::tryCatch({ base::unloadNamespace(ns) }, error = function(e) NULL)
   }
 }
-base::cat("--> Active RAM cleared of potential package conflicts.\n")
 
-# ============================================================================
-# 3. MASTER REQUIRED PACKAGES LIST (Updated)
-# ============================================================================
+# --- 3. DEPENDENCY LOADING ---
 required_packages <- base::c(
   "shiny", "bslib", "shinyjs", "shinyWidgets", "DT", "htmlwidgets", "jsonlite",
   "yaml", "dplyr", "tidyr", "readxl", "openxlsx", "lubridate", "digest", "rlang", 
@@ -51,7 +50,6 @@ required_packages <- base::c(
   "shinybusy", "tidyselect"  
 )
 
-base::cat("--> Checking system dependencies...\n")
 for (pkg in required_packages) {
   if (!base::requireNamespace(pkg, quietly = TRUE)) {
     base::cat(base::sprintf("    ...Installing missing package to sandbox: %s\n", pkg))
@@ -68,15 +66,14 @@ base::invisible(base::lapply(core_ui_packages, base::library, character.only = T
 
 `%||%` <- rlang::`%||%`
 
-base::cat("--> Sourcing modules from 'R/'...\n")
+base::cat("--> Sourcing modules...\n")
 base::tryCatch({
   scripts_to_source <- base::list.files("R", pattern = "\\.R$", full.names = TRUE, recursive = TRUE)
   for (script in scripts_to_source) { base::source(script) }
 }, error = function(e) { base::stop("FATAL ERROR: Failed to source R modules. Error: ", e$message) })
-base::cat("--> All modules sourced successfully.\n\n")
 
 # ============================================================================
-# --- 1. USER INTERFACE (UI) ---
+# --- USER INTERFACE (UI) ---
 # ============================================================================
 
 jscode <- "
@@ -135,8 +132,8 @@ ui <- bslib::page_navbar(
                        shiny::wellPanel(
                          shiny::h4("2. Reference Tables"),
                          shinyjs::disabled(shiny::textInput("output_dir_ui", "Output Directory (from config):", width = "100%")),
-                         shiny::textInput("fm_pro_path_ui", "Fm_Pro.xlsx Path:", value = "R/Reference_Tables/Fm_Pro.xlsx", width="100%"),
-                         shiny::textInput("fm_nopro_path_ui", "Fm_NoPro.xlsx Path:", value = "R/Reference_Tables/Fm_NoPro.xlsx", width="100%"),
+                         shiny::textInput("fm_pro_path_ui", "Fm_Pro.xlsx Path:", value = "R/reference tables/Fm_Pro.xlsx", width="100%"),
+                         shiny::textInput("fm_nopro_path_ui", "Fm_NoPro.xlsx Path:", value = "R/reference tables/Fm_NoPro.xlsx", width="100%"),
                          shiny::hr(),
                          shiny::actionButton("load_fm_btn", "Check Matrix Files", icon = shiny::icon("check-double"), width="100%", class="btn-outline-primary")
                        )
@@ -144,7 +141,7 @@ ui <- bslib::page_navbar(
                      shiny::tagList(
                        bslib::accordion(
                          id = "config_accordion_stack", open = FALSE,
-                         bslib::accordion_panel("Phytoclass Run Settings", icon = shiny::icon("sliders-h"),
+                         bslib::accordion_panel("Engine Settings", icon = shiny::icon("sliders-h"),
                                                 shiny::fluidRow(
                                                   shiny::column(6, shiny::numericInput("niter_input", "Iterations (Niter):", value = 500, min = 10, step = 10)),
                                                   shiny::column(6, shiny::numericInput("step_size_input", "Cooling Step Size:", value = 0.009, min = 0.0001, step = 0.001))
@@ -241,14 +238,11 @@ ui <- bslib::page_navbar(
 )
 
 # ============================================================================
-# --- 3. SERVER LOGIC ---
+# --- SERVER LOGIC ---
 # ============================================================================
 
 server <- function(input, output, session) {
   
-  # ============================================================================
-  # GLOBAL SHUTDOWN LOCKOUT & CONSOLE RELEASE
-  # ============================================================================
   app_is_stopping <- FALSE
   
   .force_console_return <- function() {
@@ -256,45 +250,28 @@ server <- function(input, output, session) {
       app_is_stopping <<- TRUE
       
       base::cat("\n\n=======================================================\n")
-      base::cat("[OK] PHYTOCLASS SHUTDOWN COMPLETE.\n")
-      base::cat("The engine has cleanly exited.\n")
+      base::cat("[OK] PHYTOCLASSSHINY SHUTDOWN COMPLETE.\n")
       base::cat("=======================================================\n")
       
-      # 1. Ask Shiny to stop politely
       base::tryCatch({ shiny::stopApp() }, error = function(e) NULL)
       
-      # 2. Wait exactly 1 second, then silently execute the hard break
       later::later(function() {
-        
-        # Method A: Programmatically push the RStudio "Interrupt R" button
         if (base::requireNamespace("rstudioapi", quietly = TRUE) && rstudioapi::isAvailable()) {
           base::tryCatch({ rstudioapi::executeCommand("interruptR") }, error = function(e) NULL)
         }
-        
-        # Method B: The deep Base R silent abort. This completely halts the 
-        # frozen event loop and returns the `>` prompt.
         base::tryCatch({ base::invokeRestart("abort") }, error = function(e) NULL)
-        
       }, delay = 1)
     }
   }
   
-  # ============================================================================
-  # 1. THE UI EXIT (When user clicks the Red Exit Button)
-  # ============================================================================
   shiny::observeEvent(input$quit_app_btn, {
-    # Tell the browser to close itself (works in Chrome/Edge, grays out in RStudio)
     shinyjs::runjs("setTimeout(function(){ window.close(); }, 200);") 
     .force_console_return()
   })
   
-  # ============================================================================
-  # 2. THE WINDOW-CLOSE EXIT (When user clicks the Browser/RStudio 'X')
-  # ============================================================================
   session$onSessionEnded(function() {
     .force_console_return()
   })
-  # ============================================================================
   
   rv <- shiny::reactiveValues(
     session_id = base::paste0("Run_", base::format(base::Sys.time(), "%Y%m%d_%H%M%S")),
@@ -319,7 +296,7 @@ server <- function(input, output, session) {
   shiny::observeEvent(input$last_btn_clicked, { .log_event("USER", base::paste("Clicked Button:", input$last_btn_clicked)) })
   
   shiny::observe({
-    minmax_files <- base::list.files(path = "R/Reference_Tables", pattern = "^MinMax_.*\\.xlsx$", full.names = FALSE)
+    minmax_files <- base::list.files(path = "R/reference tables", pattern = "^MinMax_.*\\.xlsx$", full.names = FALSE)
     if (base::length(minmax_files) > 0) {
       shiny::updateSelectInput(session, "minmax_file_selector", choices = minmax_files)
     } else {
@@ -331,11 +308,20 @@ server <- function(input, output, session) {
     shiny::observeEvent(input[[id]], {
       val <- input[[id]]; if(base::length(val) > 1) val <- base::paste0("(", base::length(val), " items)")
       .log_event("INPUT", base::paste0(id, " updated to: ", val))
-      if (id %in% base::c("fm_pro_path_ui", "fm_nopro_path_ui", "toggle_custom_minmax", "minmax_file_selector")) rv$fm_matrices <- NULL 
+      if (id %in% base::c("fm_pro_path_ui", "fm_nopro_path_ui")) {
+      rv$fm_matrices <- NULL
+    }
+    
+      if (id %in% base::c("fm_pro_path_ui", "fm_nopro_path_ui")) {
+        rv$fm_matrices <- NULL
+      }
+      
+      # Wipe downstream data to ensure consistency if data filters or cleaning states change
       if (!base::is.null(rv$master_qc_data) || base::length(rv$datasets_processed) > 0) {
-        .log_event("RESET", base::sprintf("Step 1 Settings modified. Wiping downstream to prevent corruption: %s", id))
-        reset_downstream_data("qc"); .update_workflow_state("step2")
-        shiny::showNotification("Settings changed. Downstream metrics cleared to maintain mathematical consistency.", type = "warning", duration = 6)
+        .log_event("RESET", base::sprintf("Step 1 Settings modified. Wiping downstream: %s", id))
+        reset_downstream_data("qc")
+        .update_workflow_state("step2")
+        shiny::showNotification("Settings changed. Downstream metrics cleared to maintain consistency.", type = "warning", duration = 6)
       }
     }, ignoreInit = TRUE)
   })
@@ -397,15 +383,51 @@ server <- function(input, output, session) {
   shiny::observeEvent(input$load_session_config_btn, {
     old_config <- rv$config 
     base::tryCatch({
+      
+      # 1. Attempt to extract the last saved working session
       temp_config <- load_config(CONFIG_SESSION_PATH)
-      if (base::is.null(temp_config)) base::stop("Configuration file returned NULL.")
-      rv$config <- temp_config; update_all_ui_from_config(rv$config, session); reset_downstream_data("config"); .update_workflow_state("step2")
+      
+      # 2. HANDLE EMPTY HISTORY: If no session exists, fall back to default template gracefully
+      if (base::is.null(temp_config)) {
+        temp_config <- load_config(CONFIG_TEMPLATE_PATH)
+        if (base::is.null(temp_config)) base::stop("Master config_template.yaml file is missing from system directory.")
+        
+        rv$config <- temp_config
+        update_all_ui_from_config(rv$config, session)
+        reset_downstream_data("config")
+        .update_workflow_state("step2")
+        
+        if (!base::is.null(rv$config$phytoclass$use_fixed_seed)) shiny::updateCheckboxInput(session, "toggle_fixed_seed", value = as.logical(rv$config$phytoclass$use_fixed_seed))
+        if (!base::is.null(rv$config$phytoclass$fixed_seed)) shiny::updateNumericInput(session, "fixed_seed_input", value = as.numeric(rv$config$phytoclass$fixed_seed))
+        
+        fm_result <- load_fm_matrices(rv$config)
+        if (base::is.null(fm_result$error)) rv$fm_matrices <- fm_result
+        
+        # Prompt user with an informative modal instead of a critical error report
+        shiny::showModal(shiny::modalDialog(
+          title = shiny::div(shiny::icon("info-circle", class="text-info"), " Default Template Loaded"),
+          shiny::p("No previous custom session history was detected on this computer."),
+          shiny::p("The application has successfully loaded the standard default template configuration configuration parameters."),
+          shiny::p(shiny::strong("Note:"), " Once you adjust your settings and click the green 'Save Session' button, your personalized parameters will overwrite the workspace and load here automatically in the future."),
+          easyClose = TRUE,
+          footer = shiny::modalButton("Dismiss")
+        ))
+        return()
+      }
+      
+      # 3. SUCCESS PATH: If saved parameters are present, process them normally
+      rv$config <- temp_config
+      update_all_ui_from_config(rv$config, session)
+      reset_downstream_data("config")
+      .update_workflow_state("step2")
+      
       if (!base::is.null(rv$config$phytoclass$use_fixed_seed)) shiny::updateCheckboxInput(session, "toggle_fixed_seed", value = as.logical(rv$config$phytoclass$use_fixed_seed))
       if (!base::is.null(rv$config$phytoclass$fixed_seed)) shiny::updateNumericInput(session, "fixed_seed_input", value = as.numeric(rv$config$phytoclass$fixed_seed))
       
       fm_result <- load_fm_matrices(rv$config)
       if (base::is.null(fm_result$error)) rv$fm_matrices <- fm_result
-      shiny::showNotification("Saved configuration profile reloaded.", type="message")
+      shiny::showNotification("Saved configuration profile reloaded successfully.", type="message")
+      
     }, error = function(e) { 
       rv$config <- old_config 
       shiny::showModal(shiny::modalDialog(title="Error Loading File", base::paste("Failed to load session. Reverting to previous state. Error:", e$message))) 
@@ -448,15 +470,12 @@ server <- function(input, output, session) {
     shiny::req(input$hplc_data_files_input)
     reset_downstream_data("all"); .update_workflow_state("step2")
     
-    # 1. Protect the application from fatal crashes inside 'load_all_files'
     ingested_data <- base::tryCatch({
       base::cat("--> Executing raw file parsing...\n")
       load_all_files(input$hplc_data_files_input, rv$config, .log_event)
     }, error = function(e) {
-      # Log the error to your system console
       .log_event("FATAL_INGEST", base::paste("File loader crashed: ", e$message))
       
-      # Show a clean, informative pop-up instead of a broken browser alert
       shiny::showModal(shiny::modalDialog(
         title = shiny::span(shiny::icon("exclamation-triangle", class="text-danger"), " File Ingestion Failed"),
         shiny::p("The underlying Excel parser encountered a fatal format error and stopped."),
@@ -464,7 +483,7 @@ server <- function(input, output, session) {
         easyClose = TRUE,
         footer = shiny::modalButton("Close")
       ))
-      return(base::list()) # Return an empty list to prevent downstream cascades
+      return(base::list())
     })
     
     rv$datasets_processed <- ingested_data
@@ -474,7 +493,6 @@ server <- function(input, output, session) {
       rv$mapping_history <- base::list(); rv$mapping_trigger <- rv$mapping_trigger + 1
       .update_workflow_state("step3")
     } else { 
-      # Only show generic failure if an explicit crash dialog didn't already trigger
       if (!base::any(base::grepl("FATAL_INGEST", rv$session_log))) {
         shiny::showModal(shiny::modalDialog(title = "Ingestion Failure", "No usable matrices were extracted from the uploaded batch.")) 
       }
@@ -484,7 +502,6 @@ server <- function(input, output, session) {
   output$batch_file_load_status_table <- DT::renderDT({
     shiny::req(base::length(rv$datasets_processed) > 0)
     
-    # 1. Build a clean, vanilla base R data frame (eliminates tidyverse attribute pollution)
     clean_rows <- base::list()
     
     for (i in base::seq_along(rv$datasets_processed)) {
@@ -504,14 +521,13 @@ server <- function(input, output, session) {
     
     summary_df <- base::do.call(base::rbind, clean_rows)
     
-    # 2. Return the data widget
     DT::datatable(
       summary_df, 
       options = base::list(pageLength = 10, searching = FALSE, lengthChange = FALSE), 
       rownames = FALSE
     )
     
-  }, server = FALSE) # <--- CRITICAL FIX: Forces client-side rendering to kill the AJAX JSON error
+  }, server = FALSE)
   
   validationServer("step3_validation", rv, .log_event, .update_workflow_state, session)
   qcServer("step4_qc", rv, .log_event, .update_workflow_state, reset_downstream_data)
@@ -647,7 +663,6 @@ server <- function(input, output, session) {
     shiny::req(rv$analyzed_datasets)
     ds_with_log <- purrr::keep(rv$analyzed_datasets, ~!base::is.null(.x$log_analyzer))
     
-    # 1. Safe baseline fallback if no runs have occurred yet
     if (base::length(ds_with_log) == 0) {
       return(DT::datatable(
         base::data.frame(Status = "No analysis results available.", stringsAsFactors = FALSE), 
@@ -656,7 +671,6 @@ server <- function(input, output, session) {
       ))
     }
     
-    # 2. Force strict atomic data types to prevent serialization issues
     summary_df <- purrr::map_df(ds_with_log, ~tibble::tibble(
       Dataset = base::as.character(.x$name %||% "Unknown"), 
       Status = base::as.character(.x$log_analyzer$status %||% "N/A"), 
@@ -675,9 +689,6 @@ server <- function(input, output, session) {
   
   # =========================================================================
   # --- HELP MANUAL ---
-  # =========================================================================
-  # =========================================================================
-  # --- DIRECT EXPLICIT HELP MANUAL (ROBUST SANITIZED FOR SWITCH PARSING) ---
   # =========================================================================
   shiny::observeEvent(input$help_btn_global, {
     raw_tab <- input$main_navbar
@@ -711,7 +722,7 @@ server <- function(input, output, session) {
       shiny::div(class="help-section-title", "3. Min/Max Profiles (Algorithm Constraints)"), 
       shiny::p("By default, the app uses broad internal ratios. Custom Min/Max profiles force the algorithm to search within biologically realistic bounds for your specific study region."),
       shiny::tags$ul(
-        shiny::tags$li(shiny::strong("Formatting Rules:"), " Create an Excel file in the ", shiny::code("R/Reference_Tables/"), " folder starting with 'MinMax_'. It MUST contain exactly four columns: ", shiny::code("Class"), ", ", shiny::code("Pig_Abbrev"), ", ", shiny::code("min"), ", and ", shiny::code("max"), "."),
+        shiny::tags$li(shiny::strong("Formatting Rules:"), " Create an Excel file in the ", shiny::code("R/reference tables/"), " folder starting with 'MinMax_'. It MUST contain exactly four columns: ", shiny::code("Class"), ", ", shiny::code("Pig_Abbrev"), ", ", shiny::code("min"), ", and ", shiny::code("max"), "."),
         shiny::tags$li(shiny::strong("Matrix Syncing:"), " If a pigment exists in your active Fm reference matrix for a specific class, you MUST provide a min/max rule for it in this file, or the algorithm will reject it to prevent mathematical runaway."),
         shiny::tags$li(ui_tog("Use Region-Specific Min/Max Bounds"), ": Check this box to select and apply your custom profile.")
       ),
@@ -802,4 +813,13 @@ server <- function(input, output, session) {
   })
 }
 
-shiny::shinyApp(ui = ui, server = server)
+# =========================================================================
+# --- LAUNCH ENGINE ---
+# =========================================================================
+phytoclassShiny_app <- shiny::shinyApp(ui = ui, server = server)
+
+if (!interactive()) {
+  shiny::runApp(phytoclassShiny_app, launch.browser = TRUE)
+} else {
+  phytoclassShiny_app
+}

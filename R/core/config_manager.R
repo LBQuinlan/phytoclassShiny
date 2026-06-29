@@ -8,8 +8,8 @@
 #
 # ============================================================================
 
-CONFIG_SESSION_PATH <- base::file.path(base::getwd(), "config_session.yaml")
-CONFIG_TEMPLATE_PATH <- base::file.path(base::getwd(), "config_template.yaml")
+CONFIG_SESSION_PATH <- base::file.path(base::getwd(), "system", "config_session.yaml")
+CONFIG_TEMPLATE_PATH <- base::file.path(base::getwd(), "system", "config_template.yaml")
 
 initialize_config <- function() {
   config <- load_config(CONFIG_SESSION_PATH)
@@ -89,8 +89,8 @@ update_all_ui_from_config <- function(config, session) {
   shiny::updateNumericInput(session, "step_size_input", value = config$phytoclass$step_size %||% 0.009)
   
   shiny::updateTextInput(session, "output_dir_ui", value = config$workspace$output_directory %||% "")
-  shiny::updateTextInput(session, "fm_pro_path_ui", value = config$workspace$fm_pro_matrix_path %||% "R/Reference_Tables/Fm_Pro.xlsx")
-  shiny::updateTextInput(session, "fm_nopro_path_ui", value = config$workspace$fm_nopro_matrix_path %||% "R/Reference_Tables/Fm_NoPro.xlsx")
+  shiny::updateTextInput(session, "fm_pro_path_ui", value = config$workspace$fm_pro_matrix_path %||% "R/reference tables/Fm_Pro.xlsx")
+  shiny::updateTextInput(session, "fm_nopro_path_ui", value = config$workspace$fm_nopro_matrix_path %||% "R/reference tables/Fm_NoPro.xlsx")
   
   # --- MOVED: Updating the MinMax Toggle and Dropdown from phytoclass block ---
   shiny::updateCheckboxInput(session, "toggle_custom_minmax", value = base::isTRUE(config$phytoclass$use_custom_minmax))

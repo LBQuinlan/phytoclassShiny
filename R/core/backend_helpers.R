@@ -346,7 +346,7 @@ load_fm_matrices <- function(config) {
   .load_min_max <- function(file_name) {
     if (!base::nzchar(file_name) || file_name == "No MinMax files found in directory.") return(NULL)
     
-    full_path <- base::file.path("R/Reference_Tables", file_name)
+    full_path <- base::file.path("R/reference tables", file_name)
     if (!base::file.exists(full_path)) return(base::list(error = base::paste("Min/Max file not found:", full_path)))
     
     tryCatch({

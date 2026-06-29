@@ -21,9 +21,9 @@ general:
 
 workspace:
   # Default paths relative to the application's root directory.
-  output_directory: phyto_output/
-  fm_pro_matrix_path: R/Reference_Tables/Fm_Pro.xlsx
-  fm_nopro_matrix_path: R/Reference_Tables/Fm_NoPro.xlsx
+  output_directory: output/
+  fm_pro_matrix_path: R/reference tables/Fm_Pro.xlsx
+  fm_nopro_matrix_path: R/reference tables/Fm_NoPro.xlsx
   
 column_aliases:
   # Maps standard internal keys (left) to a list of possible column names
