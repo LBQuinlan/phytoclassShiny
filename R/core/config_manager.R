@@ -1,19 +1,27 @@
 # ============================================================================
 #
-#   _phytoclass_Shiny V1.0 - MASTER CONFIGURATION MANAGER
+#   phytoclassShiny - MASTER CONFIGURATION MANAGER
 #
-#   Description:
 #   Handles state serialization, YAML read/writes, and UI synchronization.
 #   Hardened against corrupted files, UI ghosting, and OS-level locks.
+#
+#   Also holds the report-state tracking shared by the tab-lock mechanism
+#   (steps stay locked until their predecessor completes) and the
+#   progressive Download Report system, so the two can never drift out of
+#   sync with each other. invalidate_from_step() is the one function
+#   either system is allowed to use to reset downstream state. See
+#   report_builder.R for how this is consumed by the report UI.
 #
 # ============================================================================
 
 CONFIG_SESSION_PATH <- base::file.path(base::getwd(), "system", "config_session.yaml")
 CONFIG_TEMPLATE_PATH <- base::file.path(base::getwd(), "system", "config_template.yaml")
 
+STEP_ORDER <- base::c("step1", "step2", "step3", "step4", "step5", "step6", "step7")
+
 initialize_config <- function() {
   config <- load_config(CONFIG_SESSION_PATH)
-  if (base::is.null(config)) { config <- load_config(CONFIG_TEMPLATE_PATH) } 
+  if (base::is.null(config)) { config <- load_config(CONFIG_TEMPLATE_PATH) }
   if (base::is.null(config)) { base::stop("FATAL BOOT ERROR: Both session and template YAML files are missing.") }
   return(config)
 }
@@ -33,42 +41,107 @@ save_config <- function(config, path) {
   }, error = function(e) { return(FALSE) })
 }
 
+# ----------------------------------------------------------------------------
+# REPORT / WORKFLOW STATE
+#
+# `rv$step_status` is a named list, one entry per step in STEP_ORDER, each
+# one of: "not_reached", "available", "stale".
+#
+#   "not_reached" - the user hasn't successfully completed this step yet in
+#                   the current session. The Download Report toggle for this
+#                   section is greyed out and forced off.
+#   "available"   - this step's output is current and safe to include in a
+#                   the report. Toggle is on by default, user can uncheck it.
+#   "stale"       - this step WAS completed, but an upstream step has since
+#                   changed in a way that invalidates it (e.g. the user went
+#                   back to Step 2 and re-imported different files after
+#                   already completing Step 5's clustering). The toggle is
+#                   greyed out and forced off, same as not_reached, but the
+#                   UI shows a distinct message ("this needs to be re-run")
+#                   rather than "not reached yet", since the distinction
+#                   matters to the user: one means "you haven't got there",
+#                   the other means "you were there, but it moved."
+#
+# The data each step actually produced is stored separately, in
+# `rv$report_data[[step]]`, and is NOT cleared when a step becomes "stale".
+# This is deliberate: if a multi-hour clustering run (Step 5) succeeds and
+# the Step 6 analysis then fails, Step 5's clustered data must remain
+# downloadable even though Step 6 is not. Going back and changing Step 2
+# does mark Step 5 as stale (correctly, since the old clustering no longer
+# matches the new data), but the report_data itself is only overwritten when
+# that step is actually re-run and completes again, never silently dropped.
+# ----------------------------------------------------------------------------
+
+initialize_report_state <- function() {
+  status <- stats::setNames(base::as.list(base::rep("not_reached", base::length(STEP_ORDER))), STEP_ORDER)
+  base::list(status = status, data = base::list())
+}
+
+# The single function permitted to reset downstream state. Called whenever
+# an action at `from_step` changes something that could invalidate anything
+# after it, this mirrors and extends the workflow's existing "changing an
+# upstream input requires re-running every downstream step" rule, so the
+# Download Report toggles and the tab-lock behaviour are always describing
+# the same reality, never two separate opinions about it.
+invalidate_from_step <- function(step_status, from_step) {
+  from_idx <- base::match(from_step, STEP_ORDER)
+  if (base::is.na(from_idx)) return(step_status)
+
+  for (i in base::seq_along(STEP_ORDER)) {
+    s <- STEP_ORDER[i]
+    if (i >= from_idx) {
+      current <- step_status[[s]] %||% "not_reached"
+      # Only demote to "stale" if it was previously available; a step that
+      # was never reached stays "not_reached", not "stale", the distinction
+      # described above is meaningful and shouldn't be lost here.
+      step_status[[s]] <- if (base::identical(current, "available")) "stale" else "not_reached"
+    }
+  }
+  step_status
+}
+
+mark_step_available <- function(step_status, step) {
+  step_status[[step]] <- "available"
+  step_status
+}
+
+`%||%` <- function(a, b) if (!base::is.null(a)) a else b
+
 sync_config_with_ui <- function(config, input, ns_prefix = "") {
   .safe_grab <- function(id, default = NULL) { val <- input[[base::paste0(ns_prefix, id)]]; if (base::is.null(val)) return(default); return(val) }
-  
+
   if (ns_prefix == "") {
     niter_val <- base::as.numeric(.safe_grab("niter_input")); step_val <- base::as.numeric(.safe_grab("step_size_input"))
     if (!base::is.null(niter_val) && !base::is.na(niter_val) && niter_val > 0) config$phytoclass$niter <- niter_val
     if (!base::is.null(step_val) && !base::is.na(step_val) && step_val > 0) config$phytoclass$step_size <- step_val
-    
+
     fm_pro <- .safe_grab("fm_pro_path_ui"); fm_nopro <- .safe_grab("fm_nopro_path_ui")
     if (!base::is.null(fm_pro)) config$workspace$fm_pro_matrix_path <- fm_pro
     if (!base::is.null(fm_nopro)) config$workspace$fm_nopro_matrix_path <- fm_nopro
-    
-    # --- MOVED: Syncing the MinMax Toggle and Dropdown to phytoclass block ---
+
     config$phytoclass$use_custom_minmax <- base::isTRUE(.safe_grab("toggle_custom_minmax", config$phytoclass$use_custom_minmax))
     sel_minmax <- .safe_grab("minmax_file_selector")
     if (!base::is.null(sel_minmax) && sel_minmax != "No MinMax files found in directory.") { config$phytoclass$selected_minmax_file <- sel_minmax }
-    
+
     config$data_cleaning$handle_duplicates$enabled <- base::isTRUE(.safe_grab("toggle_handle_duplicates", config$data_cleaning$handle_duplicates$enabled))
     config$data_cleaning$handle_pigment_nas$enabled <- base::isTRUE(.safe_grab("toggle_handle_nas", config$data_cleaning$handle_pigment_nas$enabled))
     config$data_cleaning$enforce_non_negative_pigments$enabled <- base::isTRUE(.safe_grab("toggle_handle_negatives", config$data_cleaning$enforce_non_negative_pigments$enabled))
     config$data_cleaning$handle_zero_pigment_sum$enabled <- base::isTRUE(.safe_grab("toggle_handle_zerosum", config$data_cleaning$handle_zero_pigment_sum$enabled))
-    
+
     config$filtering$geospatial$enabled <- base::isTRUE(.safe_grab("toggle_geo_filter", config$filtering$geospatial$enabled))
     lat1 <- .safe_grab("min_lat_ui"); lat2 <- .safe_grab("max_lat_ui"); lon1 <- .safe_grab("min_lon_ui"); lon2 <- .safe_grab("max_lon_ui")
     if (!base::is.null(lat1) && !base::is.null(lat2) && !base::is.na(lat1) && !base::is.na(lat2)) { config$filtering$geospatial$min_latitude <- base::min(lat1, lat2); config$filtering$geospatial$max_latitude <- base::max(lat1, lat2) }
     if (!base::is.null(lon1) && !base::is.null(lon2) && !base::is.na(lon1) && !base::is.na(lon2)) { config$filtering$geospatial$min_longitude <- base::min(lon1, lon2); config$filtering$geospatial$max_longitude <- base::max(lon1, lon2) }
-    
+
     config$filtering$temporal$enabled <- base::isTRUE(.safe_grab("toggle_temporal_filter", config$filtering$temporal$enabled))
     d1 <- .safe_grab("start_date_ui"); d2 <- .safe_grab("end_date_ui")
     if (!base::is.null(d1) && !base::is.null(d2)) { config$filtering$temporal$start_date <- base::as.character(base::min(base::as.Date(d1), base::as.Date(d2))); config$filtering$temporal$end_date <- base::as.character(base::max(base::as.Date(d1), base::as.Date(d2))) }
-    
+
     config$filtering$depth$enabled <- base::isTRUE(.safe_grab("toggle_depth_filter", config$filtering$depth$enabled))
     dep1 <- .safe_grab("min_depth_ui"); dep2 <- .safe_grab("max_depth_ui")
     if (!base::is.null(dep1) && !base::is.null(dep2) && !base::is.na(dep1) && !base::is.na(dep2)) { config$filtering$depth$min_depth <- base::min(dep1, dep2); config$filtering$depth$max_depth <- base::max(dep1, dep2) }
   }
-  
+
   if (ns_prefix == "step5_strategy-") {
     grp_method <- .safe_grab("grouping_method_input"); if (!base::is.null(grp_method)) config$strategy$method <- grp_method
     norm_method <- .safe_grab("normalization_method_input"); if (!base::is.null(norm_method)) config$clustering$normalization_method <- norm_method
@@ -84,37 +157,36 @@ sync_config_with_ui <- function(config, input, ns_prefix = "") {
 update_all_ui_from_config <- function(config, session) {
   if (base::is.null(config)) return()
   `%||%` <- function(a, b) if (!base::is.null(a) && !base::is.na(a)) a else b
-  
+
   shiny::updateNumericInput(session, "niter_input", value = config$phytoclass$niter %||% 500)
   shiny::updateNumericInput(session, "step_size_input", value = config$phytoclass$step_size %||% 0.009)
-  
+
   shiny::updateTextInput(session, "output_dir_ui", value = config$workspace$output_directory %||% "")
   shiny::updateTextInput(session, "fm_pro_path_ui", value = config$workspace$fm_pro_matrix_path %||% "R/reference tables/Fm_Pro.xlsx")
   shiny::updateTextInput(session, "fm_nopro_path_ui", value = config$workspace$fm_nopro_matrix_path %||% "R/reference tables/Fm_NoPro.xlsx")
-  
-  # --- MOVED: Updating the MinMax Toggle and Dropdown from phytoclass block ---
+
   shiny::updateCheckboxInput(session, "toggle_custom_minmax", value = base::isTRUE(config$phytoclass$use_custom_minmax))
   if (!base::is.null(config$phytoclass$selected_minmax_file)) { shiny::updateSelectInput(session, "minmax_file_selector", selected = config$phytoclass$selected_minmax_file) }
-  
+
   shiny::updateCheckboxInput(session, "toggle_handle_duplicates", value = base::isTRUE(config$data_cleaning$handle_duplicates$enabled))
   shiny::updateCheckboxInput(session, "toggle_handle_nas", value = base::isTRUE(config$data_cleaning$handle_pigment_nas$enabled))
   shiny::updateCheckboxInput(session, "toggle_handle_negatives", value = base::isTRUE(config$data_cleaning$enforce_non_negative_pigments$enabled))
   shiny::updateCheckboxInput(session, "toggle_handle_zerosum", value = base::isTRUE(config$data_cleaning$handle_zero_pigment_sum$enabled))
-  
+
   shiny::updateCheckboxInput(session, "toggle_geo_filter", value = base::isTRUE(config$filtering$geospatial$enabled))
   shiny::updateNumericInput(session, "min_lat_ui", value = config$filtering$geospatial$min_latitude %||% -90)
   shiny::updateNumericInput(session, "max_lat_ui", value = config$filtering$geospatial$max_latitude %||% 90)
   shiny::updateNumericInput(session, "min_lon_ui", value = config$filtering$geospatial$min_longitude %||% -180)
   shiny::updateNumericInput(session, "max_lon_ui", value = config$filtering$geospatial$max_longitude %||% 180)
-  
+
   shiny::updateCheckboxInput(session, "toggle_temporal_filter", value = base::isTRUE(config$filtering$temporal$enabled))
   shiny::updateDateInput(session, "start_date_ui", value = config$filtering$temporal$start_date %||% "1900-01-01")
   shiny::updateDateInput(session, "end_date_ui", value = config$filtering$temporal$end_date %||% base::Sys.Date())
-  
+
   shiny::updateCheckboxInput(session, "toggle_depth_filter", value = base::isTRUE(config$filtering$depth$enabled))
   shiny::updateNumericInput(session, "min_depth_ui", value = config$filtering$depth$min_depth %||% 0)
   shiny::updateNumericInput(session, "max_depth_ui", value = config$filtering$depth$max_depth %||% 1000)
-  
+
   ns <- function(id) base::paste0("step5_strategy-", id)
   shinyWidgets::updateRadioGroupButtons(session, ns("grouping_method_input"), selected = config$strategy$method %||% "By Source File")
   shiny::updateSelectInput(session, ns("normalization_method_input"), selected = config$clustering$normalization_method %||% "Ratio to Tchla")

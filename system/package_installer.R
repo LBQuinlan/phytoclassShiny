@@ -79,7 +79,7 @@ required_packages <- base::list(
   "scales" = "1.4.0", "vegan" = "2.7-1", "cluster" = "2.1.8.1", 
   "factoextra" = "1.0.7", "ggplot2" = "3.5.2", "MASS" = "7.3-65", 
   "dynamicTreeCut" = "1.63-1", "glue" = "1.8.0", "stringdist" = "0.9.15", 
-  "phytoclass" = "2.3.1", "shinybusy" = "0.3.3", "tidyselect" = "1.2.1"
+  "phytoclass" = "2.3.1", "shinybusy" = "0.3.3", "tidyselect" = "1.2.1", "zip" = "2.3.0"
 )
 
 # 5. ENVIRONMENT AUDIT
